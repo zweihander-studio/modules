@@ -59,7 +59,7 @@ var ATTR = {
 // ───────────────────────────────────────────────────────────────────────────
 // Defaults
 // ───────────────────────────────────────────────────────────────────────────
-var DEFAULTS = {
+var HARDCODED = {
   direction: "up",
   delay:     0,
   duration:  600,
@@ -69,6 +69,17 @@ var DEFAULTS = {
   once:      true,
   mobile:    true,
 };
+
+// Merged defaults: hardcoded ← global overrides.
+// Global overrides can be set via: window.Zweihander.animateDefaults = { duration: 800, distance: 50, … }
+function getDefaults() {
+  var g = (window.Zweihander && window.Zweihander.animateDefaults) || {};
+  var d = {};
+  for (var key in HARDCODED) {
+    d[key] = g[key] != null ? g[key] : HARDCODED[key];
+  }
+  return d;
+}
 
 // ───────────────────────────────────────────────────────────────────────────
 // Tiny helpers (same pattern as zh-slider)
@@ -125,15 +136,16 @@ function getInitialTransform(direction, distance) {
  * Read all zh-animate-* options from an element, returning a config object.
  */
 function readConfig(el) {
+  var d = getDefaults();
   return {
-    direction: attr(el, ATTR.root, DEFAULTS.direction),
-    delay:     attrNumber(el, ATTR.delay, DEFAULTS.delay),
-    duration:  attrNumber(el, ATTR.duration, DEFAULTS.duration),
-    distance:  attrNumber(el, ATTR.distance, DEFAULTS.distance),
-    easing:    attr(el, ATTR.easing, DEFAULTS.easing),
-    threshold: attrNumber(el, ATTR.threshold, DEFAULTS.threshold),
-    once:      attrBool(el, ATTR.once, DEFAULTS.once),
-    mobile:    attrBool(el, ATTR.mobile, DEFAULTS.mobile),
+    direction: attr(el, ATTR.root, d.direction),
+    delay:     attrNumber(el, ATTR.delay, d.delay),
+    duration:  attrNumber(el, ATTR.duration, d.duration),
+    distance:  attrNumber(el, ATTR.distance, d.distance),
+    easing:    attr(el, ATTR.easing, d.easing),
+    threshold: attrNumber(el, ATTR.threshold, d.threshold),
+    once:      attrBool(el, ATTR.once, d.once),
+    mobile:    attrBool(el, ATTR.mobile, d.mobile),
   };
 }
 
@@ -352,6 +364,9 @@ window.Zweihander.animate = {
   init:    bootstrap,
   refresh: refresh,
   destroy: destroy,
+  defaults: function (opts) {
+    window.Zweihander.animateDefaults = opts;
+  },
 };
 
 // Named exports for the loader

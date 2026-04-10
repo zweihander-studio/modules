@@ -73,10 +73,12 @@ var bound = false;        // whether global listeners are attached
 function ParallaxItem(root) {
   this.root = root;
 
-  // ── Read options from attributes ──────────────────────────────────────
-  this.speed = attrNumber(root, ATTR.speed, 0.3);
-  this.direction = attr(root, ATTR.direction, "vertical");
-  this.scale = attrNumber(root, ATTR.scale, 1.2);
+  // ── Read options from attributes, falling back to global defaults ────
+  // Global defaults can be set via: window.Zweihander.parallaxDefaults = { speed, scale, direction }
+  var d = (window.Zweihander && window.Zweihander.parallaxDefaults) || {};
+  this.speed = attrNumber(root, ATTR.speed, d.speed != null ? d.speed : 0.3);
+  this.direction = attr(root, ATTR.direction, d.direction || "vertical");
+  this.scale = attrNumber(root, ATTR.scale, d.scale != null ? d.scale : 1.2);
 
   // ── Find the inner element (explicit or first child) ──────────────────
   this.inner = root.querySelector("[" + ATTR.inner + "]") || root.firstElementChild;
@@ -314,6 +316,9 @@ window.Zweihander = window.Zweihander || {};
 window.Zweihander.parallax = {
   init: bootstrap,
   destroy: destroyAll,
+  defaults: function (opts) {
+    window.Zweihander.parallaxDefaults = opts;
+  },
 };
 
 // Named exports for the loader
