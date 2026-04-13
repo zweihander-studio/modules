@@ -1,23 +1,19 @@
 /**
  * Zweihander — zh-parallax
  * Native, dependency-free parallax for Webflow.
- * Scroll-feel inspired by Ukiyo.js, with accessibility built in.
+ * Scroll math from Ukiyo.js, with WCAG accessibility.
  *
- * Usage — just add zh-parallax to any image or wrapper div:
- *
+ * Usage:
  *   <img zh-parallax src="hero.jpg" alt="…" />
- *
- *   <div zh-parallax>
- *     <img src="hero.jpg" alt="…" />
- *   </div>
+ *   <div zh-parallax><img src="hero.jpg" /></div>
  *
  * Attributes:
  *   zh-parallax                — the element to parallax
- *   zh-parallax-speed="1.5"   — parallax intensity (default 1.5)
- *   zh-parallax-scale="1.5"   — image scale factor (default 1.5)
+ *   zh-parallax-speed="1.5"   — intensity (default 1.5)
+ *   zh-parallax-scale="1.15"  — image oversizing (default 1.15)
  *
  * Global defaults:
- *   window.Zweihander.parallaxDefaults = { speed: 1.5, scale: 1.5 }
+ *   window.Zweihander.parallaxDefaults = { speed: 1.5, scale: 1.15 }
  *
  * prefers-reduced-motion: skips init entirely (WCAG 2.3.3).
  */
@@ -28,38 +24,27 @@ var ATTR = {
   scale: "zh-parallax-scale",
 };
 
-// ── Helpers ──────────────────────────────────────────────────────────────
-function attrNum(el, name, fallback) {
-  if (!el || !el.hasAttribute(name)) return fallback;
+function attrNum(el, name, fb) {
+  if (!el || !el.hasAttribute(name)) return fb;
   var n = parseFloat(el.getAttribute(name));
-  return isNaN(n) ? fallback : n;
+  return isNaN(n) ? fb : n;
 }
-
-function clamp(v, lo, hi) {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 function isImg(el) {
-  var tag = el.tagName.toLowerCase();
-  return tag === "img" || tag === "picture" || tag === "video";
+  var t = el.tagName.toLowerCase();
+  return t === "img" || t === "picture" || t === "video";
 }
-
 function prefersReducedMotion() {
   return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-// ── Module state ─────────────────────────────────────────────────────────
-var items = [];
-var rafId = null;
-var observer = null;
-var bound = false;
+var items = [], rafId = null, observer = null, bound = false, resizeRaf = null;
 
-// ── Damping on small screens (same logic as Ukiyo) ──────────────────────
+// ── Small-screen damping (Ukiyo formula) ─────────────────────────────────
 function calcDamp(speed, scale) {
   var w = window.innerWidth;
   if (w > 1000 || (speed < 1.4 && scale < 1.4)) return 1;
-  var e = Math.max(1, scale);
-  var i = Math.max(1, speed);
+  var e = Math.max(1, scale), i = Math.max(1, speed);
   var n = 1.2 - (1 - (w / 1000 + (3 - (e + i))));
   return clamp(Math.floor(n * 100) / 100, 0.5, 1);
 }
@@ -68,124 +53,137 @@ function calcDamp(speed, scale) {
 function ParallaxItem(el) {
   var d = (window.Zweihander && window.Zweihander.parallaxDefaults) || {};
   this.speed = attrNum(el, ATTR.speed, d.speed != null ? d.speed : 1.5);
-  this.scale = attrNum(el, ATTR.scale, d.scale != null ? d.scale : 1.5);
+  this.scale = attrNum(el, ATTR.scale, d.scale != null ? d.scale : 1.15);
   this.wrapped = false;
   this.visible = false;
+  this.origEl = el; // keep ref to the original element
 
-  // ── Image element: auto-wrap ───────────────────────────────────────
   if (isImg(el)) {
     this._wrapImage(el);
   } else {
-    // Div/section: use as wrapper, first child is the inner
     this.wrapper = el;
     this.inner = el.firstElementChild;
-    if (!this.inner) {
-      console.warn("[zh-parallax] no child found in", el);
-      return;
-    }
+    if (!this.inner) { console.warn("[zh-parallax] no child in", el); return; }
   }
 
-  // ── Wrapper styles ─────────────────────────────────────────────────
+  // Wrapper: clip overflow, needs position for layout
   this.wrapper.style.overflow = "hidden";
-  this.wrapper.style.position = this.wrapper.style.position || "relative";
+  if (!this.wrapper.style.position || this.wrapper.style.position === "static") {
+    this.wrapper.style.position = "relative";
+  }
 
-  // ── Inner styles ───────────────────────────────────────────────────
+  // Inner: GPU-accelerated, cover the wrapper
   this.inner.style.display = "block";
   this.inner.style.willChange = "transform";
   if (isImg(this.inner)) {
     this.inner.style.objectFit = "cover";
   }
 
-  // ── Calculate dimensions ───────────────────────────────────────────
   this._measure();
-
-  // Store ref
   this.wrapper.__zhParallax = this;
 }
 
+// ── Wrap an image element (exactly like Ukiyo) ──────────────────────────
 ParallaxItem.prototype._wrapImage = function (el) {
-  // Measure rendered size BEFORE wrapping
-  var rect = el.getBoundingClientRect();
+  // Measure the RENDERED size before touching anything
+  var elH = el.getBoundingClientRect().height;
   var cs = window.getComputedStyle(el);
 
+  // Create wrapper div
   var w = document.createElement("div");
+
+  // The wrapper must occupy exactly the same space as the original image.
+  // Copy ALL the image's CSS classes so Webflow styles carry over.
+  if (el.className) w.className = el.className;
+
+  // Position: inherit absolute/fixed, otherwise relative (for overflow clip)
+  var pos = cs.position;
+  if (pos === "absolute" || pos === "fixed") {
+    w.style.position = pos;
+  } else {
+    w.style.position = "relative";
+  }
   w.style.overflow = "hidden";
-  w.style.position = cs.position === "absolute" || cs.position === "fixed"
-    ? cs.position : "relative";
 
-  // Take over the image's space
-  w.style.width = cs.width;
-  w.style.height = rect.height + "px";
+  // Lock the wrapper height to the image's rendered height.
+  // Width comes from the copied classes (e.g. width:100% from Webflow).
+  w.style.height = elH + "px";
 
-  // Inherit visual properties
-  if (cs.borderRadius && cs.borderRadius !== "0px") w.style.borderRadius = cs.borderRadius;
+  // Transfer margins to wrapper, zero them on the image
   if (cs.margin && cs.margin !== "0px") {
     w.style.margin = cs.margin;
     el.style.margin = "0";
   }
-  if (cs.gridArea && cs.gridArea !== "auto") w.style.gridArea = cs.gridArea;
 
-  // DOM swap
+  // DOM: insert wrapper where image was, move image inside
   el.parentNode.insertBefore(w, el);
   w.appendChild(el);
+
+  // Transfer the attribute so the observer can find the wrapper
   w.setAttribute(ATTR.root, el.getAttribute(ATTR.root) || "");
 
   this.wrapper = w;
   this.inner = el;
   this.wrapped = true;
+
+  // Clear the image's classes (wrapper has them now) and reset image styles
+  // so the image fills the wrapper purely via inline styles
+  el.className = "";
+  el.style.width = "100%";
+  el.style.margin = "0";
+  el.style.padding = "0";
+  el.style.border = "0";
+  el.style.display = "block";
+  el.style.objectFit = "cover";
 };
 
+// ── Measure + set dimensions ─────────────────────────────────────────────
 ParallaxItem.prototype._measure = function () {
-  // For wrapped images: re-measure natural height at current viewport
+  var wH;
+
   if (this.wrapped) {
-    this.inner.style.height = "";
+    // Temporarily unlock height so we can re-measure at current viewport
+    this.inner.style.height = "auto";
     this.wrapper.style.height = "auto";
-    var natH = this.inner.getBoundingClientRect().height;
-    this.wrapper.style.height = natH + "px";
+    wH = this.inner.getBoundingClientRect().height;
+    // Re-lock wrapper to measured height
+    this.wrapper.style.height = wH + "px";
+  } else {
+    wH = this.wrapper.getBoundingClientRect().height;
   }
 
-  var wrapperH = this.wrapper.getBoundingClientRect().height;
+  // Inner height: original height × scale (Ukiyo formula)
+  var innerH = Math.floor(10 * (wH * this.scale)) / 10;
+  this.inner.style.height = innerH + "px";
 
-  // Overflow = extra pixels from scaling (negative value)
-  // e.g. 400px wrapper, scale 1.5 → inner 600px → overflow = -200
-  this.overflow = Math.floor(10 * (wrapperH - wrapperH * this.scale)) / 10;
+  // Overflow: how many extra pixels the inner has (negative)
+  this.overflow = Math.floor(10 * (wH - innerH)) / 10;
 
-  // Set inner height to the scaled size
-  this.inner.style.width = "100%";
-  this.inner.style.height = (wrapperH * this.scale) + "px";
-
-  // Cache wrapper position in document
+  // Cache position
   var scrollY = window.pageYOffset || document.documentElement.scrollTop;
   var rect = this.wrapper.getBoundingClientRect();
   this.elTop = rect.top + scrollY;
   this.elH = rect.height;
 
-  // Damp factor for small screens
+  // Damping + centering offset
   this.damp = calcDamp(this.speed, this.scale);
-
-  // Centering offset so image is centered at progress=0.5
   this.offset = (this.overflow * this.speed - this.overflow) / 2;
 };
 
+// ── Per-frame update (Ukiyo scroll formula) ──────────────────────────────
 ParallaxItem.prototype._update = function () {
   if (!this.visible) return;
-
   var scrollY = Math.max(0, window.pageYOffset || document.documentElement.scrollTop);
   var viewH = window.innerHeight;
-
-  // Progress: 0 = element entering viewport bottom, 1 = leaving viewport top
   var raw = (scrollY + viewH - this.elTop) / ((viewH + this.elH) / 100);
   var progress = clamp(raw, 0, 100) / 100;
-
-  // Translate: same formula as Ukiyo for matching scroll feel
   var ty = this.overflow * (1 - progress) * this.speed * this.damp - this.offset;
-
   this.inner.style.transform = "translate3d(0," + ty.toFixed(2) + "px,0)";
 };
 
+// ── Destroy ──────────────────────────────────────────────────────────────
 ParallaxItem.prototype.destroy = function () {
   if (observer && this.wrapper) observer.unobserve(this.wrapper);
-
   if (this.inner) {
     this.inner.style.transform = "";
     this.inner.style.willChange = "";
@@ -194,37 +192,34 @@ ParallaxItem.prototype.destroy = function () {
     this.inner.style.objectFit = "";
     this.inner.style.display = "";
     this.inner.style.margin = "";
+    this.inner.style.padding = "";
+    this.inner.style.border = "";
   }
-
-  if (this.wrapped && this.wrapper && this.inner) {
+  // Unwrap: move image back, restore its classes
+  if (this.wrapped && this.wrapper && this.inner && this.wrapper.parentNode) {
+    if (this.wrapper.className) this.inner.className = this.wrapper.className;
     this.wrapper.parentNode.insertBefore(this.inner, this.wrapper);
     this.wrapper.parentNode.removeChild(this.wrapper);
   } else if (this.wrapper) {
     this.wrapper.style.overflow = "";
   }
-
-  this.wrapper.__zhParallaxInit = false;
-  delete this.wrapper.__zhParallax;
+  if (this.wrapper) {
+    this.wrapper.__zhParallaxInit = false;
+    delete this.wrapper.__zhParallax;
+  }
 };
 
-// ── Animation loop ───────────────────────────────────────────────────────
+// ── Loop ─────────────────────────────────────────────────────────────────
 function tick() {
   var any = false;
   for (var i = 0; i < items.length; i++) {
-    if (items[i].visible) {
-      items[i]._update();
-      any = true;
-    }
+    if (items[i].visible) { items[i]._update(); any = true; }
   }
   rafId = any ? requestAnimationFrame(tick) : null;
 }
+function startLoop() { if (!rafId) rafId = requestAnimationFrame(tick); }
 
-function startLoop() {
-  if (rafId !== null) return;
-  rafId = requestAnimationFrame(tick);
-}
-
-// ── IntersectionObserver ─────────────────────────────────────────────────
+// ── Observer ─────────────────────────────────────────────────────────────
 function createObserver() {
   if (observer) return;
   observer = new IntersectionObserver(function (entries) {
@@ -237,7 +232,6 @@ function createObserver() {
 }
 
 // ── Resize ───────────────────────────────────────────────────────────────
-var resizeRaf = null;
 function onResize() {
   if (resizeRaf) cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(function () {
@@ -247,18 +241,14 @@ function onResize() {
     }
   });
 }
-
 function bindGlobal() {
-  if (bound) return;
-  bound = true;
+  if (bound) return; bound = true;
   window.addEventListener("resize", onResize, { passive: true });
   window.addEventListener("orientationchange", onResize, { passive: true });
   window.addEventListener("load", onResize, { passive: true });
 }
-
 function unbindGlobal() {
-  if (!bound) return;
-  bound = false;
+  if (!bound) return; bound = false;
   window.removeEventListener("resize", onResize);
   window.removeEventListener("orientationchange", onResize);
   window.removeEventListener("load", onResize);
@@ -270,33 +260,23 @@ function initOne(el) {
     var item = new ParallaxItem(el);
     items.push(item);
     observer.observe(item.wrapper);
-  } catch (err) {
-    console.error("[zh-parallax]", el, err);
-  }
+  } catch (err) { console.error("[zh-parallax]", el, err); }
 }
 
 function bootstrap() {
   if (prefersReducedMotion()) return;
-
   createObserver();
   bindGlobal();
-
   var els = document.querySelectorAll("[" + ATTR.root + "]");
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
     if (el.__zhParallaxInit) continue;
     el.__zhParallaxInit = true;
-
     if (isImg(el) && !el.complete) {
-      (function (target) {
-        target.addEventListener("load", function onLoad() {
-          target.removeEventListener("load", onLoad);
-          initOne(target);
-        });
+      (function (t) {
+        t.addEventListener("load", function f() { t.removeEventListener("load", f); initOne(t); });
       })(el);
-    } else {
-      initOne(el);
-    }
+    } else { initOne(el); }
   }
 }
 
@@ -308,14 +288,12 @@ function destroyAll() {
   unbindGlobal();
 }
 
-// ── Public API ───────────────────────────────────────────────────────────
+// ── API ──────────────────────────────────────────────────────────────────
 window.Zweihander = window.Zweihander || {};
 window.Zweihander.parallax = {
   init: bootstrap,
   destroy: destroyAll,
-  defaults: function (opts) {
-    window.Zweihander.parallaxDefaults = opts;
-  },
+  defaults: function (opts) { window.Zweihander.parallaxDefaults = opts; },
 };
 
 export { bootstrap as init };
