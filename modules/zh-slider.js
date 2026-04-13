@@ -167,14 +167,18 @@ Slider.prototype._readOptions = function () {
   // gapSet / perViewSet let us tell "I want JS to control this" apart from
   // "leave my CSS alone". When false, the script measures from the DOM and
   // never touches widths/margins/gap on the list or items.
+  // WCAG 2.3.3 — when the user prefers reduced motion, disable autoplay
+  // and use a minimal transition duration so slides still snap (but fast).
+  var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   return {
     loop: attrBool(r, "zh-slider-loop", false),
-    duration: attrNumber(r, "zh-slider-duration", 500),
+    duration: reducedMotion ? 0 : attrNumber(r, "zh-slider-duration", 500),
     slidesPerView: this._parseSpv(attr(r, "zh-slider-per-view", "1")),
     perViewSet: r.hasAttribute("zh-slider-per-view"),
     spaceBetween: attrNumber(r, "zh-slider-gap", 0),
     gapSet: r.hasAttribute("zh-slider-gap"),
-    autoplayMs: attrNumber(r, "zh-slider-autoplay", 0),
+    autoplayMs: reducedMotion ? 0 : attrNumber(r, "zh-slider-autoplay", 0),
     pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", true),
     threshold: attrNumber(r, "zh-slider-drag-threshold", 5),
     easing: attr(r, "zh-slider-easing", "cubic-bezier(.22,.61,.36,1)"),

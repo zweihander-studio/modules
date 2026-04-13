@@ -59,6 +59,13 @@ function clamp(v, lo, hi) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// Reduced motion check (WCAG 2.3.3)
+// ───────────────────────────────────────────────────────────────────────────
+function prefersReducedMotion() {
+  return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // Module state
 // ───────────────────────────────────────────────────────────────────────────
 var instances = [];       // all active ParallaxItem instances
@@ -274,6 +281,10 @@ function unbindGlobal() {
 // Bootstrap — find all [zh-parallax] elements and initialise them
 // ───────────────────────────────────────────────────────────────────────────
 function bootstrap() {
+  // WCAG 2.3.3 — respect prefers-reduced-motion. When enabled, parallax
+  // effects are skipped entirely. The images remain visible (just static).
+  if (prefersReducedMotion()) return;
+
   createObserver();
   bindGlobal();
 

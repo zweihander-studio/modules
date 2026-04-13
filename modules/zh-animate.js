@@ -101,6 +101,10 @@ function attrNumber(el, name, fallback) {
   return isNaN(n) ? fallback : n;
 }
 
+function prefersReducedMotion() {
+  return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // State tracking
 // ───────────────────────────────────────────────────────────────────────────
@@ -350,6 +354,18 @@ function destroy() {
 // Bootstrap — called by the loader
 // ───────────────────────────────────────────────────────────────────────────
 function bootstrap() {
+  // WCAG 2.3.3 — respect prefers-reduced-motion. Elements are shown
+  // immediately without any animation, so nothing stays invisible.
+  if (prefersReducedMotion()) {
+    var els = document.querySelectorAll("[" + ATTR.root + "]");
+    for (var i = 0; i < els.length; i++) {
+      els[i].style.opacity = "";
+      els[i].style.transform = "";
+      els[i].classList.add("is-animated");
+    }
+    return;
+  }
+
   scan();
 
   // Re-check mobile on resize
