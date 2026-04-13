@@ -85,6 +85,30 @@ function clearChildren(el) {
 }
 
 /**
+ * Strip animation attributes and inline styles from a cloned slide so
+ * zh-animate (or legacy data-animate) doesn't hide it with opacity:0.
+ */
+function cleanClone(el) {
+  el.setAttribute("zh-slider-clone", "true");
+  el.setAttribute("aria-hidden", "true");
+
+  // Remove any animate attributes (zh-animate, data-animate, etc.)
+  var animAttrs = ["zh-animate", "data-animate", "zh-animate-delay",
+    "data-animate-delay", "zh-animate-stagger", "data-animate-stagger",
+    "zh-animate-duration", "data-animate-duration"];
+  var targets = [el].concat(Array.prototype.slice.call(el.querySelectorAll("*")));
+  for (var t = 0; t < targets.length; t++) {
+    var node = targets[t];
+    for (var a = 0; a < animAttrs.length; a++) {
+      node.removeAttribute(animAttrs[a]);
+    }
+    // Reset any inline opacity/transform that an animate module may have set
+    if (node.style.opacity === "0") node.style.opacity = "";
+    node.classList.remove("is-animated");
+  }
+}
+
+/**
  * Find descendants matching a selector that belong to THIS slider only —
  * never reach into a nested zh-slider.
  */
@@ -227,12 +251,22 @@ Slider.prototype._setupDom = function () {
   var root = this.root;
   var list = this.list;
 
-  // Make sure overflow is clipped on the root and the list lays out as a row.
-  // We respect any existing styles set in Webflow but enforce the essentials.
+  // The root (slider_component) contains everything: top bar, slides, bottom bar.
+  // We must NOT set overflow:hidden on the root — that clips the entire component.
+  // Instead, overflow:hidden goes on the list's PARENT (slider_list-wrapper),
+  // which is the visual viewport for the slides.
   var rs = root.style;
   if (!rs.position) rs.position = "relative";
-  rs.overflow = "hidden";
-  rs.touchAction = "pan-y"; // allow vertical page scroll, capture horizontal
+
+  var listParent = list.parentElement;
+  if (listParent && listParent !== root) {
+    listParent.style.overflow = "hidden";
+    listParent.style.touchAction = "pan-y";
+  } else {
+    // Fallback: if the list is a direct child of root, clip root
+    rs.overflow = "hidden";
+    rs.touchAction = "pan-y";
+  }
 
   var ls = list.style;
   ls.display = "flex";
@@ -259,15 +293,13 @@ Slider.prototype._setupDom = function () {
     for (var i = this.realCount - 1, c = 0; c < this.loopOffset; c++, i--) {
       var idx = ((i % this.realCount) + this.realCount) % this.realCount;
       var cloneL = this.originalItems[idx].cloneNode(true);
-      cloneL.setAttribute("zh-slider-clone", "true");
-      cloneL.setAttribute("aria-hidden", "true");
+      cleanClone(cloneL);
       list.insertBefore(cloneL, list.firstChild);
     }
     // Clone head → append
     for (var j = 0; j < this.loopOffset; j++) {
       var cloneR = this.originalItems[j % this.realCount].cloneNode(true);
-      cloneR.setAttribute("zh-slider-clone", "true");
-      cloneR.setAttribute("aria-hidden", "true");
+      cleanClone(cloneR);
       list.appendChild(cloneR);
     }
   }
