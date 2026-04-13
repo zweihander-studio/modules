@@ -735,13 +735,23 @@ Slider.prototype.goTo = function (realIndex, animate) {
   if (this.opts.loop) {
     target = realIndex + this.loopOffset;
   } else {
-    var max = Math.max(0, this.realCount - Math.floor(this.effectiveSpv || 1));
-    target = clamp(realIndex, 0, max);
+    // Allow navigating to every real slide (0 … realCount-1).
+    target = clamp(realIndex, 0, this.realCount - 1);
   }
 
   this.index = target;
   this.realIndex = this._realIndexFromDisplayed(target);
+
+  // Calculate translate, but clamp so the last slide sits flush
+  // against the right edge — no empty space beyond the last card.
   var x = -target * this.slideSize;
+  if (!this.opts.loop) {
+    var maxTranslate = -((this.realCount - 1) * this.slideSize - (this.containerSize - this.slideSize));
+    // maxTranslate = -(totalContentWidth - containerWidth)
+    if (maxTranslate > 0) maxTranslate = 0;
+    x = Math.max(x, maxTranslate);
+  }
+
   this._setTranslate(x, animate);
   this._updateState();
 };
@@ -773,9 +783,8 @@ Slider.prototype._updateState = function () {
     }
   }
   if (!this.opts.loop) {
-    var maxReal = Math.max(0, this.realCount - Math.floor(this.effectiveSpv || 1));
     if (this.prevEl) this.prevEl.classList.toggle("is-disabled", this.realIndex <= 0);
-    if (this.nextEl) this.nextEl.classList.toggle("is-disabled", this.realIndex >= maxReal);
+    if (this.nextEl) this.nextEl.classList.toggle("is-disabled", this.realIndex >= this.realCount - 1);
   }
   var curStr = this.opts.padNumbers ? pad(this.realIndex + 1) : String(this.realIndex + 1);
   for (var c = 0; c < this.currentEls.length; c++) this.currentEls[c].textContent = curStr;
@@ -1083,7 +1092,9 @@ Slider.prototype._bindPointer = function () {
     var next = self.startTranslate + dx;
 
     if (!self.opts.loop) {
-      var minX = -(self.items.length - 1) * self.slideSize;
+      // Clamp: last slide flush with right edge of container
+      var minX = -((self.realCount - 1) * self.slideSize - (self.containerSize - self.slideSize));
+      if (minX > 0) minX = 0;
       if (next > 0) next = next * 0.35;
       else if (next < minX) next = minX + (next - minX) * 0.35;
     }
@@ -1123,8 +1134,7 @@ Slider.prototype._bindPointer = function () {
 
     var targetDisplayed = self.index + direction;
     if (!self.opts.loop) {
-      var maxDisp = Math.max(0, self.realCount - Math.floor(self.effectiveSpv || 1));
-      targetDisplayed = clamp(targetDisplayed, 0, maxDisp);
+      targetDisplayed = clamp(targetDisplayed, 0, self.realCount - 1);
     }
 
     if (self.opts.loop) {
@@ -1184,8 +1194,7 @@ Slider.prototype._startAutoplay = function () {
   var self = this;
   this.autoplayTimer = setInterval(function () {
     if (!self.opts.loop) {
-      var maxAuto = Math.max(0, self.realCount - Math.floor(self.effectiveSpv || 1));
-      if (self.realIndex >= maxAuto) {
+      if (self.realIndex >= self.realCount - 1) {
         self.goTo(0, true);
         return;
       }
