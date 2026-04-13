@@ -251,20 +251,15 @@ Slider.prototype._setupDom = function () {
   var root = this.root;
   var list = this.list;
 
-  // The root (slider_component) contains everything: top bar, slides, bottom bar.
-  // We must NOT set overflow:hidden on the root — that clips the entire component.
-  // Instead, overflow:hidden goes on the list's PARENT (slider_list-wrapper),
-  // which is the visual viewport for the slides.
+  // Overflow is NOT set by the script — style it yourself in Webflow.
+  // Only touchAction is set so drag/swipe works correctly.
   var rs = root.style;
   if (!rs.position) rs.position = "relative";
 
   var listParent = list.parentElement;
   if (listParent && listParent !== root) {
-    listParent.style.overflow = "hidden";
     listParent.style.touchAction = "pan-y";
   } else {
-    // Fallback: if the list is a direct child of root, clip root
-    rs.overflow = "hidden";
     rs.touchAction = "pan-y";
   }
 
