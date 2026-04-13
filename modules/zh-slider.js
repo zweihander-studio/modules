@@ -425,15 +425,9 @@ Slider.prototype._createSkipLink = function () {
   var root = this.root;
   var list = this.list;
   var listWrapper = list.parentElement || list;
+  var autoCreated = false;
 
-  // Custom skip text via attribute, or auto-generate from slider name
-  var skipText = root.getAttribute("zh-slider-skip-text");
-  if (!skipText) {
-    var name = this.name || "slider";
-    skipText = "Skip " + name + " list";
-  }
-
-  // Create an invisible anchor AFTER the list wrapper as the skip target
+  // ── Skip target: invisible anchor right after the slide list ──────
   var skipTargetId = "zh-skip-" + (this.name || Math.random().toString(36).substr(2, 8));
   var skipTarget = document.createElement("span");
   skipTarget.id = skipTargetId;
@@ -441,55 +435,35 @@ Slider.prototype._createSkipLink = function () {
   skipTarget.setAttribute("aria-hidden", "true");
   skipTarget.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);";
 
-  // Insert the skip target right after the list wrapper
   if (listWrapper.nextSibling) {
     root.insertBefore(skipTarget, listWrapper.nextSibling);
   } else {
     root.appendChild(skipTarget);
   }
 
-  // Create the skip link
-  var skipLink = document.createElement("a");
-  skipLink.href = "#" + skipTargetId;
-  skipLink.className = "zh-slider-skip";
-  skipLink.textContent = skipText;
-  skipLink.setAttribute("zh-slider-skip-link", "true");
+  // ── Skip link: use existing [zh-slider-skip] or auto-create ───────
+  var skipLink = root.querySelector("[zh-slider-skip]");
 
-  // sr-only styles: invisible until :focus
-  skipLink.style.cssText = [
-    "position:absolute",
-    "width:1px",
-    "height:1px",
-    "padding:0",
-    "margin:-1px",
-    "overflow:hidden",
-    "clip:rect(0,0,0,0)",
-    "white-space:nowrap",
-    "border:0",
-    "z-index:9999"
-  ].join(";");
+  if (skipLink) {
+    // User placed their own element in Webflow — just wire up the behavior.
+    // No inline styles are forced. Style it however you want in Webflow.
+    // The script only adds sr-only behavior via a class toggle.
+    autoCreated = false;
+  } else {
+    // No element found — auto-create a minimal skip link
+    autoCreated = true;
+    var skipText = root.getAttribute("zh-slider-skip-text");
+    if (!skipText) {
+      var name = this.name || "slider";
+      skipText = "Skip " + name + " list";
+    }
 
-  // On focus: become visible
-  skipLink.addEventListener("focus", function () {
-    skipLink.style.cssText = [
-      "position:absolute",
-      "top:0",
-      "left:0",
-      "z-index:9999",
-      "padding:8px 16px",
-      "background:#000",
-      "color:#fff",
-      "font-size:14px",
-      "font-weight:600",
-      "text-decoration:underline",
-      "border-radius:4px",
-      "outline:2px solid #fff",
-      "outline-offset:2px"
-    ].join(";");
-  });
+    skipLink = document.createElement("a");
+    skipLink.textContent = skipText;
+    skipLink.setAttribute("zh-slider-skip", "");
+    root.insertBefore(skipLink, root.firstChild);
 
-  // On blur: go back to sr-only
-  skipLink.addEventListener("blur", function () {
+    // Auto-created: use sr-only pattern (hidden until focused)
     skipLink.style.cssText = [
       "position:absolute",
       "width:1px",
@@ -502,21 +476,64 @@ Slider.prototype._createSkipLink = function () {
       "border:0",
       "z-index:9999"
     ].join(";");
-  });
 
-  // On click: jump to skip target and focus it
+    skipLink.addEventListener("focus", function () {
+      skipLink.style.cssText = [
+        "position:absolute",
+        "top:0",
+        "left:0",
+        "z-index:9999",
+        "padding:8px 16px",
+        "background:#000",
+        "color:#fff",
+        "font-size:14px",
+        "font-weight:600",
+        "text-decoration:underline",
+        "border-radius:4px",
+        "outline:2px solid #fff",
+        "outline-offset:2px"
+      ].join(";");
+    });
+
+    skipLink.addEventListener("blur", function () {
+      skipLink.style.cssText = [
+        "position:absolute",
+        "width:1px",
+        "height:1px",
+        "padding:0",
+        "margin:-1px",
+        "overflow:hidden",
+        "clip:rect(0,0,0,0)",
+        "white-space:nowrap",
+        "border:0",
+        "z-index:9999"
+      ].join(";");
+    });
+  }
+
+  // Wire up the skip behavior (works for both custom and auto-created)
+  skipLink.setAttribute("role", "link");
+  skipLink.setAttribute("href", "#" + skipTargetId);
+  if (!skipLink.getAttribute("tabindex")) skipLink.setAttribute("tabindex", "0");
+
   skipLink.addEventListener("click", function (e) {
     e.preventDefault();
     var target = document.getElementById(skipTargetId);
     if (target) target.focus();
   });
 
-  // Insert as the very first child of root
-  root.insertBefore(skipLink, root.firstChild);
+  skipLink.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      var target = document.getElementById(skipTargetId);
+      if (target) target.focus();
+    }
+  });
 
   // Store references for cleanup
   this._skipLink = skipLink;
   this._skipTarget = skipTarget;
+  this._skipAutoCreated = autoCreated;
 };
 
 // Update aria-hidden on slides, aria-current on bullets, and live region
@@ -1196,7 +1213,7 @@ Slider.prototype.destroy = function () {
   this.list.style.transition = "";
   this.list.style.willChange = "";
   this.root.classList.remove("is-dragging");
-  if (this._skipLink && this._skipLink.parentNode) this._skipLink.parentNode.removeChild(this._skipLink);
+  if (this._skipAutoCreated && this._skipLink && this._skipLink.parentNode) this._skipLink.parentNode.removeChild(this._skipLink);
   if (this._skipTarget && this._skipTarget.parentNode) this._skipTarget.parentNode.removeChild(this._skipTarget);
   this.root.__zhSliderInit = false;
   delete this.root.__zhSlider;
