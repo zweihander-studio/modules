@@ -8,7 +8,7 @@
  *        zh-animate-delay="200"
  *        zh-animate-duration="800"
  *        zh-animate-distance="40"
- *        zh-animate-easing="cubic-bezier(0.68, -1.6, 0.27, 2.6)"
+ *        zh-animate-easing="cubic-bezier(0.68, -0.6, 0.32, 1.6)"
  *        zh-animate-threshold="0.2"
  *        zh-animate-once="true"
  *        zh-animate-mobile="true">
@@ -27,7 +27,7 @@
  *   zh-animate-delay    = delay in ms before animation starts   (default 0)
  *   zh-animate-duration = animation duration in ms              (default 600)
  *   zh-animate-distance = translate distance in px              (default 30)
- *   zh-animate-easing   = CSS easing string                     (default "cubic-bezier(0.68, -1.6, 0.27, 2.6)")
+ *   zh-animate-easing   = CSS easing string                     (default "cubic-bezier(0.68, -0.6, 0.32, 1.6)")
  *   zh-animate-stagger  = stagger delay between siblings in ms  (container attr)
  *   zh-animate-threshold= how much of element must be visible   (default 0.15)
  *   zh-animate-once     = "true|false" animate once or repeat   (default true)
@@ -64,7 +64,7 @@ var HARDCODED = {
   delay:     0,
   duration:  600,
   distance:  30,
-  easing:    "cubic-bezier(0.68, -1.6, 0.27, 2.6)",
+  easing:    "cubic-bezier(0.68, -0.6, 0.32, 1.6)",
   threshold: 0.15,
   once:      true,
   mobile:    true,
