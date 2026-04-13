@@ -102,9 +102,16 @@ function cleanClone(el) {
     for (var a = 0; a < animAttrs.length; a++) {
       node.removeAttribute(animAttrs[a]);
     }
-    // Reset any inline opacity/transform that an animate module may have set
     if (node.style.opacity === "0") node.style.opacity = "";
     node.classList.remove("is-animated");
+  }
+
+  // Make all focusable elements inside clones un-tabbable.
+  // This prevents keyboard users from tabbing into cloned slides.
+  var focusable = "a, button, input, select, textarea, [tabindex]";
+  var els = [el].concat(Array.prototype.slice.call(el.querySelectorAll(focusable)));
+  for (var f = 0; f < els.length; f++) {
+    els[f].setAttribute("tabindex", "-1");
   }
 }
 
@@ -460,11 +467,42 @@ Slider.prototype._bindKeyboard = function () {
     }
   });
 
-  // Pause autoplay when slider has focus (WCAG 2.2.2)
+  // ── Focus-driven slide navigation ──────────────────────────────────
+  // When a user Tabs into a slide, the slider scrolls to that slide.
+  // This makes Tab key navigate slide-by-slide through the real slides.
+  // Cloned slides are already tabindex="-1" so they're skipped.
+  this.root.addEventListener("focusin", function (e) {
+    // Find which slide contains the focused element
+    var slide = e.target.closest("[" + ATTR.item + "]");
+    if (!slide) return;
+
+    // Skip cloned slides (shouldn't happen since they're tabindex=-1)
+    if (slide.getAttribute("zh-slider-clone") === "true") return;
+
+    // Find the index of this slide in the items array
+    var idx = -1;
+    for (var i = 0; i < self.items.length; i++) {
+      if (self.items[i] === slide) { idx = i; break; }
+    }
+    if (idx < 0) return;
+
+    // Only slide if it's not already the current slide
+    if (idx !== self.index) {
+      if (self.opts.loop) {
+        self.index = idx;
+        self.realIndex = self._realIndexFromDisplayed(idx);
+        self._setTranslate(-self.index * self.slideSize, true);
+        self._updateState();
+      } else {
+        self.goTo(idx, true);
+      }
+    }
+
+    // Pause autoplay while slider has focus (WCAG 2.2.2)
+    self._stopAutoplay();
+  });
+
   if (this.opts.autoplayMs > 0) {
-    this.root.addEventListener("focusin", function () {
-      self._stopAutoplay();
-    });
     this.root.addEventListener("focusout", function () {
       self._startAutoplay();
     });
