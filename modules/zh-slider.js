@@ -854,9 +854,13 @@ Slider.prototype._bindControls = function () {
 };
 
 // ── Pointer / drag ───────────────────────────────────────────────────────
+// Design: pointerdown only records intent. Pointer capture and drag mode
+// activate ONLY after the threshold is exceeded in pointermove. This lets
+// normal taps, clicks, link-blocks, and Webflow interactions work normally.
 Slider.prototype._bindPointer = function () {
   var self = this;
   var root = this.root;
+  var pendingPointerId = null; // stored pointerId from pointerdown
 
   function isControl(t) {
     return t && t.closest && t.closest("[" + ATTR.element + "]");
@@ -865,24 +869,43 @@ Slider.prototype._bindPointer = function () {
   function onDown(e) {
     if (e.button != null && e.button !== 0) return;
     if (isControl(e.target)) return;
-    self.isDragging = true;
+
+    // Just record intent — do NOT capture or preventDefault yet.
+    // This allows clicks, links, and Webflow interactions to fire normally.
     self.dragMoved = false;
     self.dragStart = e.clientX;
     self.dragLastX = e.clientX;
     self.dragLastT = performance.now();
     self.dragVelocity = 0;
     self.startTranslate = self.translate;
-    self.list.style.transition = "none";
-    root.classList.add("is-dragging");
-    self._stopAutoplay();
-    try { root.setPointerCapture(e.pointerId); } catch (err) {}
+    pendingPointerId = e.pointerId;
+
+    // Listen on document so we don't lose the drag if pointer leaves root
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
   }
 
   function onMove(e) {
-    if (!self.isDragging) return;
+    if (pendingPointerId == null) return;
     var dx = e.clientX - self.dragStart;
 
-    if (!self.dragMoved && Math.abs(dx) < self.opts.threshold) return;
+    // ── Before threshold: not yet dragging ──────────────────────────
+    if (!self.isDragging) {
+      if (Math.abs(dx) < self.opts.threshold) return;
+
+      // Threshold exceeded — NOW enter drag mode
+      self.isDragging = true;
+      self.dragMoved = true;
+      self.list.style.transition = "none";
+      root.classList.add("is-dragging");
+      self._stopAutoplay();
+
+      // Capture pointer so the drag stays smooth even outside the element
+      try { root.setPointerCapture(pendingPointerId); } catch (err) {}
+    }
+
+    // ── Active drag ─────────────────────────────────────────────────
     self.dragMoved = true;
 
     var now = performance.now();
@@ -908,11 +931,24 @@ Slider.prototype._bindPointer = function () {
   }
 
   function onUp(e) {
-    if (!self.isDragging) return;
+    // Always clean up document listeners
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onUp);
+
+    var wasDragging = self.isDragging;
+    var wasMoved = self.dragMoved;
+
     self.isDragging = false;
     root.classList.remove("is-dragging");
     try { root.releasePointerCapture(e.pointerId); } catch (err) {}
+    pendingPointerId = null;
 
+    // If the pointer never moved past threshold, this was a tap/click.
+    // Let the native event chain continue — no interference.
+    if (!wasDragging || !wasMoved) return;
+
+    // ── Drag release: snap to nearest slide ─────────────────────────
     var moved = self.translate - self.startTranslate;
     var velocityPxMs = self.dragVelocity;
     var projected = moved + velocityPxMs * 120;
@@ -942,21 +978,22 @@ Slider.prototype._bindPointer = function () {
 
     self._restartAutoplay();
 
-    // Suppress click that would otherwise fire on links inside slides
-    if (self.dragMoved) {
-      var swallow = function (ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        root.removeEventListener("click", swallow, true);
-      };
-      root.addEventListener("click", swallow, true);
-    }
+    // Suppress the click that fires after a real drag (prevents link navigation)
+    var swallow = function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      root.removeEventListener("click", swallow, true);
+    };
+    root.addEventListener("click", swallow, true);
+
+    // Safety: remove swallow after a short timeout in case click never fires
+    setTimeout(function () {
+      root.removeEventListener("click", swallow, true);
+    }, 100);
   }
 
+  // Only pointerdown on root — move/up are added to document on-demand
   root.addEventListener("pointerdown", onDown);
-  root.addEventListener("pointermove", onMove);
-  root.addEventListener("pointerup", onUp);
-  root.addEventListener("pointercancel", onUp);
 
   // Prevent native image dragging from hijacking pointer drags in Safari
   var imgs = root.querySelectorAll("img");
