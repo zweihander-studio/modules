@@ -251,17 +251,11 @@ Slider.prototype._setupDom = function () {
   var root = this.root;
   var list = this.list;
 
-  // Overflow is NOT set by the script — style it yourself in Webflow.
-  // Only touchAction is set so drag/swipe works correctly.
+  // No overflow, touchAction, or cursor styles are forced by the script.
+  // Style everything yourself in Webflow. The script only sets position
+  // on the root if it's not already set (needed for layout calculations).
   var rs = root.style;
   if (!rs.position) rs.position = "relative";
-
-  var listParent = list.parentElement;
-  if (listParent && listParent !== root) {
-    listParent.style.touchAction = "pan-y";
-  } else {
-    rs.touchAction = "pan-y";
-  }
 
   var ls = list.style;
   ls.display = "flex";
@@ -708,8 +702,7 @@ Slider.prototype._bindScrollbarDrag = function () {
   var startX = 0;
   var startThumbX = 0;
 
-  // Make thumb feel interactive
-  this.scrollbarThumbEl.style.cursor = "grab";
+  // touchAction:none on thumb so drag works on touch devices
   this.scrollbarThumbEl.style.touchAction = "none";
 
   function getThumbX() {
@@ -724,7 +717,7 @@ Slider.prototype._bindScrollbarDrag = function () {
     dragging = true;
     startX = e.clientX;
     startThumbX = getThumbX();
-    self.scrollbarThumbEl.style.cursor = "grabbing";
+    self.root.classList.add("is-dragging");
     self._stopAutoplay();
     try { self.scrollbarEl.setPointerCapture(e.pointerId); } catch (err) {}
   }
@@ -784,7 +777,7 @@ Slider.prototype._bindScrollbarDrag = function () {
   function onUp(e) {
     if (!dragging) return;
     dragging = false;
-    self.scrollbarThumbEl.style.cursor = "grab";
+    self.root.classList.remove("is-dragging");
     try { self.scrollbarEl.releasePointerCapture(e.pointerId); } catch (err) {}
 
     // Snap to nearest slide with smooth animation
@@ -854,24 +847,21 @@ Slider.prototype._bindControls = function () {
 };
 
 // ── Pointer / drag ───────────────────────────────────────────────────────
-// Design: pointerdown only records intent. Pointer capture and drag mode
-// activate ONLY after the threshold is exceeded in pointermove. This lets
-// normal taps, clicks, link-blocks, and Webflow interactions work normally.
+// Drag is bound on the LIST element (not root), so clicks on nav buttons,
+// links, Webflow interactions, and other elements outside the slide track
+// are never intercepted. Pointer capture only activates after the drag
+// threshold is exceeded, so taps and clicks on slides work normally.
+// No cursor or user-select styles are forced — style those in Webflow.
 Slider.prototype._bindPointer = function () {
   var self = this;
-  var root = this.root;
-  var pendingPointerId = null; // stored pointerId from pointerdown
-
-  function isControl(t) {
-    return t && t.closest && t.closest("[" + ATTR.element + "]");
-  }
+  var list = this.list;
+  var pendingPointerId = null;
 
   function onDown(e) {
     if (e.button != null && e.button !== 0) return;
-    if (isControl(e.target)) return;
 
-    // Just record intent — do NOT capture or preventDefault yet.
-    // This allows clicks, links, and Webflow interactions to fire normally.
+    // Record intent — do NOT capture or preventDefault.
+    // Clicks, links, and Webflow interactions fire normally.
     self.dragMoved = false;
     self.dragStart = e.clientX;
     self.dragLastX = e.clientX;
@@ -880,7 +870,7 @@ Slider.prototype._bindPointer = function () {
     self.startTranslate = self.translate;
     pendingPointerId = e.pointerId;
 
-    // Listen on document so we don't lose the drag if pointer leaves root
+    // Listen on document so drag tracking continues outside the list
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", onUp);
@@ -898,11 +888,11 @@ Slider.prototype._bindPointer = function () {
       self.isDragging = true;
       self.dragMoved = true;
       self.list.style.transition = "none";
-      root.classList.add("is-dragging");
+      self.root.classList.add("is-dragging");
       self._stopAutoplay();
 
-      // Capture pointer so the drag stays smooth even outside the element
-      try { root.setPointerCapture(pendingPointerId); } catch (err) {}
+      // Capture pointer on the list so drag stays smooth
+      try { list.setPointerCapture(pendingPointerId); } catch (err) {}
     }
 
     // ── Active drag ─────────────────────────────────────────────────
@@ -940,8 +930,8 @@ Slider.prototype._bindPointer = function () {
     var wasMoved = self.dragMoved;
 
     self.isDragging = false;
-    root.classList.remove("is-dragging");
-    try { root.releasePointerCapture(e.pointerId); } catch (err) {}
+    self.root.classList.remove("is-dragging");
+    try { list.releasePointerCapture(e.pointerId); } catch (err) {}
     pendingPointerId = null;
 
     // If the pointer never moved past threshold, this was a tap/click.
@@ -982,25 +972,23 @@ Slider.prototype._bindPointer = function () {
     var swallow = function (ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      root.removeEventListener("click", swallow, true);
+      list.removeEventListener("click", swallow, true);
     };
-    root.addEventListener("click", swallow, true);
+    list.addEventListener("click", swallow, true);
 
     // Safety: remove swallow after a short timeout in case click never fires
     setTimeout(function () {
-      root.removeEventListener("click", swallow, true);
+      list.removeEventListener("click", swallow, true);
     }, 100);
   }
 
-  // Only pointerdown on root — move/up are added to document on-demand
-  root.addEventListener("pointerdown", onDown);
+  // Bind pointerdown on the LIST only — not the root component
+  list.addEventListener("pointerdown", onDown);
 
   // Prevent native image dragging from hijacking pointer drags in Safari
-  var imgs = root.querySelectorAll("img");
+  var imgs = list.querySelectorAll("img");
   for (var i = 0; i < imgs.length; i++) {
     imgs[i].setAttribute("draggable", "false");
-    imgs[i].style.userSelect = "none";
-    imgs[i].style.webkitUserDrag = "none";
   }
 };
 
