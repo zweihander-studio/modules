@@ -543,10 +543,18 @@ Slider.prototype.layout = function (silent) {
       this.items[i].style.width = per + "px";
     }
   } else {
-    // Still ensure slides don't shrink away inside the flex list.
     for (var j = 0; j < this.items.length; j++) {
       this.items[j].style.flexShrink = "0";
     }
+  }
+
+  // Give each slide its own compositing layer. This prevents absolutely
+  // positioned children (titles, icons, pricing overlays) from "jumping"
+  // during translate3d transitions on the parent list.
+  for (var k = 0; k < this.items.length; k++) {
+    this.items[k].style.backfaceVisibility = "hidden";
+    this.items[k].style.webkitBackfaceVisibility = "hidden";
+    this.items[k].style.transform = "translate3d(0,0,0)";
   }
 
   // 3. Measure the real slide pitch (width + gap) from the DOM. This is
