@@ -105,19 +105,21 @@ function ParallaxItem(el) {
 
   // ── Handle img/picture/video: auto-wrap in a clipping container ──────
   if (isImageElement(el)) {
-    var wrapper = document.createElement("div");
-
-    // Copy layout-relevant styles from the image to the wrapper
+    // Measure the RENDERED size before wrapping (CSS classes set the size)
+    var rect = el.getBoundingClientRect();
     var cs = window.getComputedStyle(el);
+
+    var wrapper = document.createElement("div");
     wrapper.style.position = cs.position === "absolute" || cs.position === "fixed"
       ? cs.position : "relative";
     wrapper.style.overflow = "hidden";
     wrapper.style.display = cs.display === "inline" ? "block" : cs.display;
 
-    // Copy dimensions — wrapper takes the image's original space
-    if (el.style.width) wrapper.style.width = el.style.width;
-    if (el.style.height) wrapper.style.height = el.style.height;
-    if (el.style.maxWidth) wrapper.style.maxWidth = el.style.maxWidth;
+    // Use the computed (rendered) width — respects Webflow CSS classes.
+    // Height is set explicitly so percentage-based child heights work.
+    wrapper.style.width = cs.width;
+    wrapper.style.height = rect.height + "px";
+    if (cs.maxWidth && cs.maxWidth !== "none") wrapper.style.maxWidth = cs.maxWidth;
     if (cs.borderRadius && cs.borderRadius !== "0px") {
       wrapper.style.borderRadius = cs.borderRadius;
     }
@@ -138,12 +140,13 @@ function ParallaxItem(el) {
     this.inner = el;
     this.wrapped = true;
 
-    // Image styles: fill the wrapper, scaled taller for parallax travel
+    // Image: taller than wrapper to allow parallax travel, cover to fill
     el.style.display = "block";
     el.style.width = "100%";
     el.style.height = (this.scale * 100) + "%";
     el.style.objectFit = "cover";
     el.style.objectPosition = "center";
+    el.style.position = "relative";
   } else {
     // ── Div/section: use as-is, find inner element ────────────────────
     this.root = el;
@@ -185,6 +188,17 @@ function ParallaxItem(el) {
 
 // ── Measure element position (called on init + resize) ─────────────────
 ParallaxItem.prototype._measure = function () {
+  // For wrapped images: temporarily reset wrapper height to auto so we
+  // can re-measure the image's natural rendered height at the current
+  // viewport width (responsive). Then lock it again.
+  if (this.wrapped) {
+    this.inner.style.height = "auto";
+    this.root.style.height = "auto";
+    var imgH = this.inner.getBoundingClientRect().height;
+    this.root.style.height = imgH + "px";
+    this.inner.style.height = (this.scale * 100) + "%";
+  }
+
   var rect = this.root.getBoundingClientRect();
   var scrollY = window.pageYOffset || document.documentElement.scrollTop;
   var scrollX = window.pageXOffset || document.documentElement.scrollLeft;
