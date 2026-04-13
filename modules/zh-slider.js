@@ -440,20 +440,23 @@ Slider.prototype._updateA11y = function () {
 Slider.prototype._bindKeyboard = function () {
   var self = this;
 
-  this.root.setAttribute("tabindex", "0");
-
+  // Don't force tabindex on root — let Webflow control tab order.
+  // Keyboard nav works when ANY element inside the slider has focus.
   this.root.addEventListener("keydown", function (e) {
-    switch (e.key) {
-      case "ArrowLeft":
+    if (e.key === "ArrowLeft") {
+      // In loop mode with keyboard: stop at first slide (no loop trap)
+      if (!self.opts.loop || self.realIndex > 0) {
         e.preventDefault();
         self.prev();
         self._restartAutoplay();
-        break;
-      case "ArrowRight":
+      }
+    } else if (e.key === "ArrowRight") {
+      // In loop mode with keyboard: stop at last slide (no loop trap)
+      if (!self.opts.loop || self.realIndex < self.realCount - 1) {
         e.preventDefault();
         self.next();
         self._restartAutoplay();
-        break;
+      }
     }
   });
 
@@ -845,57 +848,64 @@ Slider.prototype._bindControls = function () {
 };
 
 // ── Pointer / drag ───────────────────────────────────────────────────────
-// Drag is bound on the LIST element (not root), so clicks on nav buttons,
-// links, Webflow interactions, and other elements outside the slide track
-// are never intercepted. Pointer capture only activates after the drag
-// threshold is exceeded, so taps and clicks on slides work normally.
-// No cursor or user-select styles are forced — style those in Webflow.
+// Uses Swiper-inspired "allowClick" pattern:
+//   - pointerdown on the wrapper: record start, set allowClick = true
+//   - pointermove on document: once threshold exceeded, allowClick = false
+//   - click handler (capture phase): if !allowClick → swallow the click
+// No setPointerCapture, no preventDefault on pointerdown, no forced styles.
+// Links, hover interactions, and Webflow IX all work normally.
 Slider.prototype._bindPointer = function () {
   var self = this;
-  var list = this.list;
-  var pendingPointerId = null;
+  var wrapper = this.list.parentElement || this.list;
+  var allowClick = true;
+  var tracking = false;
+
+  // ── Click gate (capture phase) ────────────────────────────────────
+  // Registered once — stays active. Only blocks clicks after a real drag.
+  wrapper.addEventListener("click", function (e) {
+    if (!allowClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Reset after swallowing so the next tap works
+      allowClick = true;
+    }
+  }, true);
 
   function onDown(e) {
     if (e.button != null && e.button !== 0) return;
-
-    // Record intent — do NOT capture or preventDefault.
-    // Clicks, links, and Webflow interactions fire normally.
+    tracking = true;
+    allowClick = true;
+    self.isDragging = false;
     self.dragMoved = false;
     self.dragStart = e.clientX;
     self.dragLastX = e.clientX;
     self.dragLastT = performance.now();
     self.dragVelocity = 0;
     self.startTranslate = self.translate;
-    pendingPointerId = e.pointerId;
 
-    // Listen on document so drag tracking continues outside the list
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", onUp);
   }
 
   function onMove(e) {
-    if (pendingPointerId == null) return;
+    if (!tracking) return;
     var dx = e.clientX - self.dragStart;
 
-    // ── Before threshold: not yet dragging ──────────────────────────
+    // ── Before threshold ────────────────────────────────────────────
     if (!self.isDragging) {
       if (Math.abs(dx) < self.opts.threshold) return;
 
-      // Threshold exceeded — NOW enter drag mode
+      // Threshold exceeded → enter drag mode
       self.isDragging = true;
       self.dragMoved = true;
+      allowClick = false; // ← this is the key: block the upcoming click
       self.list.style.transition = "none";
       self.root.classList.add("is-dragging");
       self._stopAutoplay();
-
-      // Capture pointer on the list so drag stays smooth
-      try { list.setPointerCapture(pendingPointerId); } catch (err) {}
     }
 
     // ── Active drag ─────────────────────────────────────────────────
-    self.dragMoved = true;
-
     var now = performance.now();
     var dt = now - self.dragLastT;
     if (dt > 0) self.dragVelocity = (e.clientX - self.dragLastX) / dt;
@@ -913,28 +923,22 @@ Slider.prototype._bindPointer = function () {
     self.list.style.transform = "translate3d(" + next + "px, 0, 0)";
     self.translate = next;
 
-    // Live-update scrollbar + progress during slide drag
     self._updateScrollbarFromTranslate(next);
     self._updateProgressFromTranslate(next);
   }
 
   function onUp(e) {
-    // Always clean up document listeners
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
     document.removeEventListener("pointercancel", onUp);
 
     var wasDragging = self.isDragging;
-    var wasMoved = self.dragMoved;
-
     self.isDragging = false;
     self.root.classList.remove("is-dragging");
-    try { list.releasePointerCapture(e.pointerId); } catch (err) {}
-    pendingPointerId = null;
+    tracking = false;
 
-    // If the pointer never moved past threshold, this was a tap/click.
-    // Let the native event chain continue — no interference.
-    if (!wasDragging || !wasMoved) return;
+    // Tap/click — let the native event chain handle it
+    if (!wasDragging) return;
 
     // ── Drag release: snap to nearest slide ─────────────────────────
     var moved = self.translate - self.startTranslate;
@@ -965,26 +969,13 @@ Slider.prototype._bindPointer = function () {
     }
 
     self._restartAutoplay();
-
-    // Suppress the click that fires after a real drag (prevents link navigation)
-    var swallow = function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      list.removeEventListener("click", swallow, true);
-    };
-    list.addEventListener("click", swallow, true);
-
-    // Safety: remove swallow after a short timeout in case click never fires
-    setTimeout(function () {
-      list.removeEventListener("click", swallow, true);
-    }, 100);
   }
 
-  // Bind pointerdown on the LIST only — not the root component
-  list.addEventListener("pointerdown", onDown);
+  // pointerdown on the wrapper (slider_list-wrapper), NOT the root
+  wrapper.addEventListener("pointerdown", onDown);
 
-  // Prevent native image dragging from hijacking pointer drags in Safari
-  var imgs = list.querySelectorAll("img");
+  // Prevent native image dragging from hijacking pointer events in Safari
+  var imgs = this.list.querySelectorAll("img");
   for (var i = 0; i < imgs.length; i++) {
     imgs[i].setAttribute("draggable", "false");
   }
