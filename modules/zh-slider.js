@@ -268,9 +268,6 @@ Slider.prototype._setupDom = function () {
   ls.display = "flex";
   ls.flexWrap = "nowrap";
   ls.willChange = "transform";
-  ls.backfaceVisibility = "hidden";
-  ls.webkitBackfaceVisibility = "hidden"; // Safari hint
-  ls.transform = "translate3d(0,0,0)";
 
   // If looping, clone slides on each side so we can wrap seamlessly.
   // When per-view is NOT declared we don't know the slide count yet, so we
@@ -670,14 +667,6 @@ Slider.prototype.layout = function (silent) {
     }
   }
 
-  // Give each slide its own compositing layer. This prevents absolutely
-  // positioned children (titles, icons, pricing overlays) from "jumping"
-  // during translate3d transitions on the parent list.
-  for (var k = 0; k < this.items.length; k++) {
-    this.items[k].style.backfaceVisibility = "hidden";
-    this.items[k].style.webkitBackfaceVisibility = "hidden";
-    this.items[k].style.transform = "translate3d(0,0,0)";
-  }
 
   // 3. Measure the real slide pitch (width + gap) from the DOM. This is
   //    the single source of truth for swipe math, regardless of who set
@@ -710,11 +699,70 @@ Slider.prototype.layout = function (silent) {
 
 // ── Movement ──────────────────────────────────────────────────────────────
 Slider.prototype._setTranslate = function (px, animate) {
-  this.translate = px;
-  this.list.style.transition = animate
-    ? "transform " + this.opts.duration + "ms " + this.opts.easing
-    : "none";
-  this.list.style.transform = "translate3d(" + px + "px, 0, 0)";
+  var self = this;
+  if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+
+  if (!animate || this.opts.duration <= 0) {
+    // Instant jump — no animation
+    this.translate = px;
+    this.list.style.transition = "none";
+    this.list.style.transform = "translate3d(" + px + "px, 0, 0)";
+    return;
+  }
+
+  // rAF-based animation — smoother than CSS transitions on mobile Safari.
+  // CSS transitions on translate3d cause sub-pixel jank for position:absolute
+  // children. rAF lets the browser composite everything in one pass per frame.
+  var from = this.translate;
+  var dist = px - from;
+  var duration = this.opts.duration;
+  var start = null;
+  this.list.style.transition = "none";
+
+  // Easing: parse common CSS easing names to JS functions
+  var ease = this._getEasing(this.opts.easing);
+
+  function step(ts) {
+    if (!start) start = ts;
+    var elapsed = ts - start;
+    var t = Math.min(elapsed / duration, 1);
+    var val = from + dist * ease(t);
+    self.translate = val;
+    self.list.style.transform = "translate3d(" + val + "px, 0, 0)";
+
+    if (t < 1) {
+      self._rafId = requestAnimationFrame(step);
+    } else {
+      self.translate = px;
+      self.list.style.transform = "translate3d(" + px + "px, 0, 0)";
+      self._rafId = null;
+      self._handleLoopWrap();
+    }
+  }
+
+  this._rafId = requestAnimationFrame(step);
+};
+
+// Convert CSS easing keyword to a JS easing function
+Slider.prototype._getEasing = function (css) {
+  switch (css) {
+    case "linear":
+      return function (t) { return t; };
+    case "ease-in":
+      return function (t) { return t * t; };
+    case "ease-out":
+      return function (t) { return t * (2 - t); };
+    case "ease-in-out":
+      return function (t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; };
+    case "ease":
+    default:
+      // Approximation of CSS ease (cubic-bezier(0.25, 0.1, 0.25, 1))
+      return function (t) {
+        return t < 0.5
+          ? 4 * t * t * t
+          : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      };
+  }
 };
 
 Slider.prototype._displayedIndexFromReal = function (real) {
@@ -1216,6 +1264,7 @@ Slider.prototype._restartAutoplay = function () {
 // ── Public destroy (handy for Webflow CMS re-renders) ───────────────────
 Slider.prototype.destroy = function () {
   this._stopAutoplay();
+  if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
   var clones = this.root.querySelectorAll("[zh-slider-clone='true']");
   for (var i = 0; i < clones.length; i++) clones[i].parentNode.removeChild(clones[i]);
   this.list.style.transform = "";
