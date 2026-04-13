@@ -410,16 +410,14 @@ Slider.prototype._setupA11y = function () {
 // Update aria-hidden on slides, aria-current on bullets, and live region
 // Called from _updateState on every slide change.
 Slider.prototype._updateA11y = function () {
-  // aria-hidden + inert on non-visible slides (so tab skips them)
+  // aria-hidden on non-visible slides (for screenreaders).
+  // We do NOT use "inert" — slides must stay interactive so links,
+  // hover effects, and Webflow interactions work on all visible cards.
   var spv = Math.floor(this.effectiveSpv || 1);
   for (var i = 0; i < this.items.length; i++) {
     var visible = i >= this.index && i < this.index + spv;
     this.items[i].setAttribute("aria-hidden", visible ? "false" : "true");
-    if (visible) {
-      this.items[i].removeAttribute("inert");
-    } else {
-      this.items[i].setAttribute("inert", "");
-    }
+    this.items[i].removeAttribute("inert");
   }
 
   // aria-current on bullets
