@@ -143,9 +143,11 @@ function Slider(root) {
   this.resizeRaf = 0;
 
   this._setupDom();
+  this._setupA11y();
   this._bindControls();
   this._bindPointer();
   this._bindScrollbarDrag();
+  this._bindKeyboard();
   this._bindResize();
   this._bindVisibility();
   this._applyBreakpoint();
@@ -337,6 +339,112 @@ Slider.prototype._setupDom = function () {
   for (var t = 0; t < this.totalEls.length; t++) this.totalEls[t].textContent = totStr;
 };
 
+// ── Accessibility ──────────────────────────────────────────────────────────
+Slider.prototype._setupA11y = function () {
+  var root = this.root;
+  var sliderName = this.name || "slider";
+
+  // 1. Root gets role="region" with a label so screenreaders announce it
+  if (!root.getAttribute("role")) root.setAttribute("role", "region");
+  if (!root.getAttribute("aria-roledescription")) root.setAttribute("aria-roledescription", "carousel");
+  if (!root.getAttribute("aria-label")) root.setAttribute("aria-label", sliderName);
+
+  // 2. Slide list is a live region — polite so it doesn't interrupt
+  this.list.setAttribute("aria-live", "off"); // "off" during drag/autoplay, "polite" when idle
+  this.list.setAttribute("aria-atomic", "false");
+
+  // 3. Each original slide gets role + roledescription + label
+  for (var i = 0; i < this.originalItems.length; i++) {
+    var slide = this.originalItems[i];
+    slide.setAttribute("role", "group");
+    slide.setAttribute("aria-roledescription", "slide");
+    slide.setAttribute("aria-label", (i + 1) + " of " + this.realCount);
+  }
+
+  // 4. Nav buttons get aria-labels if not already set
+  if (this.prevEl && !this.prevEl.getAttribute("aria-label")) {
+    this.prevEl.setAttribute("aria-label", "Previous slide");
+  }
+  if (this.nextEl && !this.nextEl.getAttribute("aria-label")) {
+    this.nextEl.setAttribute("aria-label", "Next slide");
+  }
+
+  // 5. Pagination gets role="tablist", bullets get role="tab"
+  if (this.paginationEl) {
+    this.paginationEl.setAttribute("role", "tablist");
+    this.paginationEl.setAttribute("aria-label", "Slide navigation");
+  }
+  if (this.bullets) {
+    for (var b = 0; b < this.bullets.length; b++) {
+      this.bullets[b].setAttribute("role", "tab");
+      this.bullets[b].setAttribute("aria-label", "Slide " + (b + 1) + " of " + this.realCount);
+    }
+  }
+};
+
+// Update aria-hidden on slides, aria-current on bullets, and live region
+// Called from _updateState on every slide change.
+Slider.prototype._updateA11y = function () {
+  // aria-hidden + inert on non-visible slides (so tab skips them)
+  var spv = Math.floor(this.effectiveSpv || 1);
+  for (var i = 0; i < this.items.length; i++) {
+    var visible = i >= this.index && i < this.index + spv;
+    this.items[i].setAttribute("aria-hidden", visible ? "false" : "true");
+    if (visible) {
+      this.items[i].removeAttribute("inert");
+    } else {
+      this.items[i].setAttribute("inert", "");
+    }
+  }
+
+  // aria-current on bullets
+  if (this.bullets) {
+    for (var b = 0; b < this.bullets.length; b++) {
+      this.bullets[b].setAttribute("aria-selected", b === this.realIndex ? "true" : "false");
+    }
+  }
+
+  // Briefly set aria-live to "polite" so the slide change is announced,
+  // but only when not dragging or autoplaying (to avoid spam).
+  if (!this.isDragging && !this.autoplayTimer) {
+    this.list.setAttribute("aria-live", "polite");
+  } else {
+    this.list.setAttribute("aria-live", "off");
+  }
+};
+
+// ── Keyboard navigation ──────────────────────────────────────────────────
+Slider.prototype._bindKeyboard = function () {
+  var self = this;
+
+  this.root.setAttribute("tabindex", "0");
+
+  this.root.addEventListener("keydown", function (e) {
+    switch (e.key) {
+      case "ArrowLeft":
+        e.preventDefault();
+        self.prev();
+        self._restartAutoplay();
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        self.next();
+        self._restartAutoplay();
+        break;
+    }
+  });
+
+  // Pause autoplay when slider has focus (WCAG 2.2.2)
+  if (this.opts.autoplayMs > 0) {
+    this.root.addEventListener("focusin", function () {
+      self._stopAutoplay();
+    });
+    this.root.addEventListener("focusout", function () {
+      self._startAutoplay();
+    });
+  }
+};
+
 // ── Layout: compute sizes, set widths, position ───────────────────────────
 //
 // Two orthogonal knobs control how much the script touches CSS:
@@ -480,6 +588,7 @@ Slider.prototype._updateState = function () {
 
   this._updateScrollbar(true);
   this._updateProgress(true);
+  this._updateA11y();
 };
 
 // ── Progress bar ─────────────────────────────────────────────────────────
