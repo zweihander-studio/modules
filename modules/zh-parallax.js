@@ -1,7 +1,7 @@
 /**
  * Zweihander — zh-parallax
  * Native, dependency-free parallax for Webflow.
- * Scroll math from Ukiyo.js, with WCAG accessibility.
+ * Scroll math and DOM wrapping from Ukiyo.js, with WCAG accessibility.
  *
  * Usage:
  *   <img zh-parallax src="hero.jpg" alt="…" />
@@ -11,9 +11,6 @@
  *   zh-parallax                — the element to parallax
  *   zh-parallax-speed="1.5"   — intensity (default 1.5)
  *   zh-parallax-scale="1.15"  — image oversizing (default 1.15)
- *
- * Global defaults:
- *   window.Zweihander.parallaxDefaults = { speed: 1.5, scale: 1.15 }
  *
  * prefers-reduced-motion: skips init entirely (WCAG 2.3.3).
  */
@@ -38,7 +35,7 @@ function prefersReducedMotion() {
   return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-var items = [], rafId = null, observer = null, bound = false, resizeRaf = null;
+var items = [], rafId = null, observer = null, bound = false, resizeTimer = null;
 
 // ── Small-screen damping (Ukiyo formula) ─────────────────────────────────
 function calcDamp(speed, scale) {
@@ -51,240 +48,313 @@ function calcDamp(speed, scale) {
 
 // ── ParallaxItem ─────────────────────────────────────────────────────────
 function ParallaxItem(el) {
+  this.element = el;
+  this.wrapper = document.createElement("div");
+  this.visible = false;
+  this.vh = document.documentElement.clientHeight;
+  this.elementTag = el.tagName.toLowerCase();
+
   var d = (window.Zweihander && window.Zweihander.parallaxDefaults) || {};
   this.speed = attrNum(el, ATTR.speed, d.speed != null ? d.speed : 1.5);
   this.scale = attrNum(el, ATTR.scale, d.scale != null ? d.scale : 1.15);
-  this.wrapped = false;
-  this.visible = false;
-  this.origEl = el; // keep ref to the original element
+  this.damp = calcDamp(this.speed, this.scale);
 
-  if (isImg(el)) {
-    this._wrapImage(el);
-  } else {
-    this.wrapper = el;
-    this.inner = el.firstElementChild;
-    if (!this.inner) { console.warn("[zh-parallax] no child in", el); return; }
-  }
-
-  // Wrapper: clip overflow, needs position for layout
-  this.wrapper.style.overflow = "hidden";
-  if (!this.wrapper.style.position || this.wrapper.style.position === "static") {
-    this.wrapper.style.position = "relative";
-  }
-
-  // Inner: GPU-accelerated, cover the wrapper
-  this.inner.style.display = "block";
-  this.inner.style.willChange = "transform";
-  if (isImg(this.inner)) {
-    this.inner.style.objectFit = "cover";
-  }
-
-  this._measure();
-  this.wrapper.__zhParallax = this;
+  this.setStyle(true);
+  this.wrapElement();
+  this.createObserver();
 }
 
-// ── Wrap an image element (exactly like Ukiyo) ──────────────────────────
-ParallaxItem.prototype._wrapImage = function (el) {
-  // Measure the RENDERED size before touching anything
-  var elH = el.getBoundingClientRect().height;
+// ── Set styles on wrapper + element (Ukiyo pattern) ──────────────────────
+// First call (init=true) also sets one-time styles.
+// Called again on resize after a reset.
+ParallaxItem.prototype.setStyle = function (init) {
+  var el = this.element;
+  var elH = el.clientHeight;
+  var elW = el.clientWidth;
   var cs = window.getComputedStyle(el);
+  var isAbs = cs.position === "absolute";
+  var ws = this.wrapper.style;
+  var es = el.style;
 
-  // Create wrapper div
-  var w = document.createElement("div");
+  // Overflow: extra pixels from scaling (negative)
+  this.overflow = Math.floor(10 * (elH - elH * this.scale)) / 10;
 
-  // The wrapper must occupy exactly the same space as the original image.
-  // Copy ALL the image's CSS classes so Webflow styles carry over.
-  if (el.className) w.className = el.className;
+  // ── Transfer layout properties from element to wrapper ──────────────
 
-  // Position: inherit absolute/fixed, otherwise relative (for overflow clip)
-  var pos = cs.position;
-  if (pos === "absolute" || pos === "fixed") {
-    w.style.position = pos;
-  } else {
-    w.style.position = "relative";
-  }
-  w.style.overflow = "hidden";
-
-  // Lock the wrapper height to the image's rendered height.
-  // Width comes from the copied classes (e.g. width:100% from Webflow).
-  w.style.height = elH + "px";
-
-  // Transfer margins to wrapper, zero them on the image
-  if (cs.margin && cs.margin !== "0px") {
-    w.style.margin = cs.margin;
-    el.style.margin = "0";
+  // Margins → wrapper
+  if (cs.marginTop !== "0px" || cs.marginBottom !== "0px") {
+    ws.marginTop = cs.marginTop;
+    ws.marginBottom = cs.marginBottom;
+    es.marginTop = "0";
+    es.marginBottom = "0";
   }
 
-  // DOM: insert wrapper where image was, move image inside
-  el.parentNode.insertBefore(w, el);
-  w.appendChild(el);
+  // Absolute positioning: transfer inset to wrapper
+  if (cs.inset && cs.inset !== "auto") {
+    ws.top = cs.top;
+    ws.right = cs.right;
+    ws.bottom = cs.bottom;
+    ws.left = cs.left;
+    es.top = "0";
+    es.right = "0";
+    es.bottom = "0";
+    es.left = "0";
+  }
 
-  // Transfer the attribute so the observer can find the wrapper
-  w.setAttribute(ATTR.root, el.getAttribute(ATTR.root) || "");
+  // Transform, z-index, grid-area → wrapper
+  if (cs.transform !== "none") {
+    ws.transform = cs.transform;
+    es.transform = "";
+  }
+  if (cs.zIndex !== "auto") ws.zIndex = cs.zIndex;
+  if (cs.gridArea && cs.gridArea !== "auto" && cs.gridArea !== "auto / auto / auto / auto") {
+    ws.gridArea = cs.gridArea;
+    es.gridArea = "auto";
+  }
 
-  this.wrapper = w;
-  this.inner = el;
-  this.wrapped = true;
+  // Position
+  ws.position = isAbs ? "absolute" : "relative";
 
-  // Clear the image's classes (wrapper has them now) and reset image styles
-  // so the image fills the wrapper purely via inline styles
-  el.className = "";
-  el.style.width = "100%";
-  el.style.margin = "0";
-  el.style.padding = "0";
-  el.style.border = "0";
-  el.style.display = "block";
-  el.style.objectFit = "cover";
+  // One-time styles (only on init)
+  if (init) {
+    ws.width = "100%";
+    ws.overflow = "hidden";
+    es.display = "block";
+    es.overflow = "hidden";
+    es.backfaceVisibility = "hidden";
+    if (cs.padding !== "0px") es.padding = "0";
+
+    if (this.elementTag === "img") {
+      es.objectFit = "cover";
+    } else if (this.elementTag === "video") {
+      es.objectFit = "cover";
+    } else {
+      es.backgroundPosition = "center";
+    }
+  }
+
+  // Border radius → wrapper (with isolation to clip properly)
+  if (cs.borderRadius !== "0px") {
+    ws.borderRadius = cs.borderRadius;
+    ws.isolation = "isolate";
+    if (cs.marginLeft !== "0px") {
+      ws.marginLeft = cs.marginLeft;
+      es.marginLeft = "0";
+    }
+    if (cs.marginRight !== "0px") {
+      ws.marginRight = cs.marginRight;
+      es.marginRight = "0";
+    }
+    ws.width = elW + "px";
+  }
+
+  // Absolute elements: lock width
+  if (isAbs) {
+    ws.width = elW + "px";
+    es.width = "100%";
+  }
+
+  // Max/min height → wrapper
+  if (cs.maxHeight !== "none") {
+    ws.maxHeight = cs.maxHeight;
+    es.maxHeight = "none";
+  }
+  if (cs.minHeight !== "0px") {
+    ws.minHeight = cs.minHeight;
+    es.minHeight = "none";
+  }
+
+  // Final dimensions — the core of the parallax:
+  // Wrapper = original size, Element = scaled taller
+  es.width = elW + "px";
+  ws.setProperty("height", elH + "px", "important");
+  es.setProperty("height", (elH * this.scale) + "px", "important");
+
+  this.wrapperHeight = elH;
 };
 
-// ── Measure + set dimensions ─────────────────────────────────────────────
-ParallaxItem.prototype._measure = function () {
-  var wH;
-
-  if (this.wrapped) {
-    // Temporarily unlock height so we can re-measure at current viewport
-    this.inner.style.height = "auto";
-    this.wrapper.style.height = "auto";
-    wH = this.inner.getBoundingClientRect().height;
-    // Re-lock wrapper to measured height
-    this.wrapper.style.height = wH + "px";
+// ── Wrap element in the wrapper div ──────────────────────────────────────
+ParallaxItem.prototype.wrapElement = function () {
+  // Handle <picture> wrapping
+  var picture = this.element.closest("picture");
+  if (picture) {
+    picture.parentNode.insertBefore(this.wrapper, picture);
+    this.wrapper.appendChild(picture);
   } else {
-    wH = this.wrapper.getBoundingClientRect().height;
+    var parent = this.element.parentNode;
+    if (parent) {
+      parent.insertBefore(this.wrapper, this.element);
+      this.wrapper.appendChild(this.element);
+    }
   }
-
-  // Inner height: original height × scale (Ukiyo formula)
-  var innerH = Math.floor(10 * (wH * this.scale)) / 10;
-  this.inner.style.height = innerH + "px";
-
-  // Overflow: how many extra pixels the inner has (negative)
-  this.overflow = Math.floor(10 * (wH - innerH)) / 10;
-
-  // Cache position
-  var scrollY = window.pageYOffset || document.documentElement.scrollTop;
-  var rect = this.wrapper.getBoundingClientRect();
-  this.elTop = rect.top + scrollY;
-  this.elH = rect.height;
-
-  // Damping + centering offset
-  this.damp = calcDamp(this.speed, this.scale);
-  this.offset = (this.overflow * this.speed - this.overflow) / 2;
+  this.wrapper.setAttribute(ATTR.root + "-wrapper", "");
 };
 
-// ── Per-frame update (Ukiyo scroll formula) ──────────────────────────────
-ParallaxItem.prototype._update = function () {
-  if (!this.visible) return;
-  var scrollY = Math.max(0, window.pageYOffset || document.documentElement.scrollTop);
-  var viewH = window.innerHeight;
-  var raw = (scrollY + viewH - this.elTop) / ((viewH + this.elH) / 100);
+// ── Observer ─────────────────────────────────────────────────────────────
+ParallaxItem.prototype.createObserver = function () {
+  var self = this;
+  this.observer = new IntersectionObserver(function (entries) {
+    if (entries[0].isIntersecting) {
+      self.element.style.willChange = "transform";
+      self.visible = true;
+    } else {
+      self.element.style.willChange = "";
+      self.visible = false;
+    }
+    startLoop();
+  }, { root: null, rootMargin: "0px", threshold: 0 });
+  this.observer.observe(this.wrapper);
+};
+
+// ── Scroll math (Ukiyo formula) ──────────────────────────────────────────
+ParallaxItem.prototype.calcTranslate = function () {
+  var scrollY = Math.max(0, window.pageYOffset || 0);
+  var elTop = this.wrapper.getBoundingClientRect().top + scrollY;
+  var raw = (scrollY + this.vh - elTop) / ((this.vh + this.wrapperHeight) / 100);
   var progress = clamp(raw, 0, 100) / 100;
-  var ty = this.overflow * (1 - progress) * this.speed * this.damp - this.offset;
-  this.inner.style.transform = "translate3d(0," + ty.toFixed(2) + "px,0)";
+  var offset = (this.overflow * this.speed - this.overflow) / 2;
+  return Number((this.overflow * (1 - progress) * this.speed * this.damp - offset).toFixed(4));
+};
+
+ParallaxItem.prototype.animate = function () {
+  if (this.visible) {
+    this.element.style.transform = "translate3d(0," + this.calcTranslate() + "px,0)";
+  }
+};
+
+// ── Reset (called on resize — let browser re-layout, then re-measure) ────
+ParallaxItem.prototype.reset = function () {
+  this.damp = calcDamp(this.speed, this.scale);
+  var ws = this.wrapper.style;
+  var es = this.element.style;
+  this.vh = document.documentElement.clientHeight;
+
+  // Temporarily clear dimensions so the browser can re-layout
+  ws.width = "";
+  ws.position = "";
+  ws.height = "100%";
+  es.width = "";
+
+  if (this.elementTag === "img" && ws.position === "absolute") {
+    ws.height = "100%";
+  }
+
+  if (!ws.gridArea || ws.gridArea === "auto") {
+    es.height = "";
+  } else {
+    es.height = "100%";
+  }
+
+  if (ws.margin !== "0px") {
+    ws.margin = "";
+    es.margin = "";
+  }
+  if (ws.inset !== "auto") {
+    ws.top = ""; ws.right = ""; ws.bottom = ""; ws.left = "";
+    es.top = ""; es.right = ""; es.bottom = ""; es.left = "";
+  }
+  if (ws.transform !== "none") {
+    ws.transform = "";
+    es.transform = "";
+  }
+  if (ws.zIndex !== "auto") ws.zIndex = "";
+  if (ws.borderRadius !== "0px") {
+    ws.borderRadius = "";
+    ws.isolation = "";
+  }
+
+  // Re-measure and re-apply
+  this.setStyle();
+  this.animate();
 };
 
 // ── Destroy ──────────────────────────────────────────────────────────────
 ParallaxItem.prototype.destroy = function () {
-  if (observer && this.wrapper) observer.unobserve(this.wrapper);
-  if (this.inner) {
-    this.inner.style.transform = "";
-    this.inner.style.willChange = "";
-    this.inner.style.width = "";
-    this.inner.style.height = "";
-    this.inner.style.objectFit = "";
-    this.inner.style.display = "";
-    this.inner.style.margin = "";
-    this.inner.style.padding = "";
-    this.inner.style.border = "";
+  if (this.observer) this.observer.disconnect();
+  this.wrapper.removeAttribute("style");
+  this.element.removeAttribute("style");
+  // Unwrap: move children back
+  while (this.wrapper.firstChild) {
+    this.wrapper.parentNode.insertBefore(this.wrapper.firstChild, this.wrapper);
   }
-  // Unwrap: move image back, restore its classes
-  if (this.wrapped && this.wrapper && this.inner && this.wrapper.parentNode) {
-    if (this.wrapper.className) this.inner.className = this.wrapper.className;
-    this.wrapper.parentNode.insertBefore(this.inner, this.wrapper);
-    this.wrapper.parentNode.removeChild(this.wrapper);
-  } else if (this.wrapper) {
-    this.wrapper.style.overflow = "";
-  }
-  if (this.wrapper) {
-    this.wrapper.__zhParallaxInit = false;
-    delete this.wrapper.__zhParallax;
-  }
+  this.wrapper.parentNode.removeChild(this.wrapper);
 };
 
-// ── Loop ─────────────────────────────────────────────────────────────────
+// ── Animation loop ───────────────────────────────────────────────────────
 function tick() {
   var any = false;
   for (var i = 0; i < items.length; i++) {
-    if (items[i].visible) { items[i]._update(); any = true; }
+    if (items[i].visible) { items[i].animate(); any = true; }
   }
   rafId = any ? requestAnimationFrame(tick) : null;
 }
 function startLoop() { if (!rafId) rafId = requestAnimationFrame(tick); }
 
-// ── Observer ─────────────────────────────────────────────────────────────
-function createObserver() {
-  if (observer) return;
-  observer = new IntersectionObserver(function (entries) {
-    for (var i = 0; i < entries.length; i++) {
-      var inst = entries[i].target.__zhParallax;
-      if (inst) inst.visible = entries[i].isIntersecting;
-    }
-    startLoop();
-  }, { rootMargin: "10% 0px", threshold: 0 });
-}
-
 // ── Resize ───────────────────────────────────────────────────────────────
 function onResize() {
-  if (resizeRaf) cancelAnimationFrame(resizeRaf);
-  resizeRaf = requestAnimationFrame(function () {
-    for (var i = 0; i < items.length; i++) {
-      items[i]._measure();
-      items[i]._update();
-    }
-  });
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(function () {
+    for (var i = 0; i < items.length; i++) items[i].reset();
+  }, 500);
 }
+
 function bindGlobal() {
   if (bound) return; bound = true;
-  window.addEventListener("resize", onResize, { passive: true });
-  window.addEventListener("orientationchange", onResize, { passive: true });
-  window.addEventListener("load", onResize, { passive: true });
+  if (navigator.userAgent.match(/(iPhone|iPad|iPod|Android)/)) {
+    window.addEventListener("orientationchange", onResize);
+  } else {
+    window.addEventListener("resize", onResize);
+  }
 }
 function unbindGlobal() {
   if (!bound) return; bound = false;
   window.removeEventListener("resize", onResize);
   window.removeEventListener("orientationchange", onResize);
-  window.removeEventListener("load", onResize);
 }
 
 // ── Bootstrap ────────────────────────────────────────────────────────────
-function initOne(el) {
-  try {
-    var item = new ParallaxItem(el);
-    items.push(item);
-    observer.observe(item.wrapper);
-  } catch (err) { console.error("[zh-parallax]", el, err); }
-}
-
 function bootstrap() {
   if (prefersReducedMotion()) return;
-  createObserver();
   bindGlobal();
+
   var els = document.querySelectorAll("[" + ATTR.root + "]");
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
     if (el.__zhParallaxInit) continue;
     el.__zhParallaxInit = true;
-    if (isImg(el) && !el.complete) {
-      (function (t) {
-        t.addEventListener("load", function f() { t.removeEventListener("load", f); initOne(t); });
+
+    if (el.tagName.toLowerCase() === "img") {
+      var src = el.getAttribute("src");
+      if (!src) continue;
+      (function (target) {
+        var img = new Image();
+        img.src = src;
+        if (img.decode) {
+          img.decode().then(function () { initOne(target); });
+        } else {
+          img.onload = function () { initOne(target); };
+        }
       })(el);
-    } else { initOne(el); }
+    } else {
+      initOne(el);
+    }
   }
+
+  // Start the loop
+  startLoop();
+}
+
+function initOne(el) {
+  try {
+    var item = new ParallaxItem(el);
+    items.push(item);
+  } catch (err) { console.error("[zh-parallax]", el, err); }
 }
 
 function destroyAll() {
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   for (var i = 0; i < items.length; i++) items[i].destroy();
   items = [];
-  if (observer) { observer.disconnect(); observer = null; }
   unbindGlobal();
 }
 
