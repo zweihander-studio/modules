@@ -20,13 +20,20 @@
  *     <div zh-slider-element="scrollbar"><div zh-slider-element="scrollbar-thumb"></div></div>
  *     <div zh-slider-element="progress"><div zh-slider-element="progress-fill"></div></div>
  *
+ *     <!-- Timeline: per-slide progress bars (gallery-style autoplay) -->
+ *     <div zh-slider-element="timeline">
+ *       <div zh-slider-element="timeline-fill"></div>
+ *     </div>
+ *     <!-- Repeat for each slide, or use a CMS collection list -->
+ *
  *     <div zh-slider-current="hero">1</div>
  *     <div zh-slider-total="hero">1</div>
  *   </div>
  *
  * Style it however you like in Webflow. The script only sets dynamic
  * transform/transition values inline and toggles a few state classes:
- *   - is-active   on current pagination bullet & slide
+ *   - is-active   on current pagination bullet, slide & timeline item
+ *   - is-past     on timeline items before the current slide
  *   - is-disabled on nav buttons at the bounds (when not looping)
  *   - is-dragging on the root while user is interacting
  */
@@ -346,6 +353,24 @@ Slider.prototype._setupDom = function () {
       this.progressEl.style.overflow = "hidden";
     }
   }
+
+  // Timeline: per-slide progress bars (gallery-style autoplay).
+  // Each timeline item corresponds to one real slide.
+  // When autoplay is active, the current item's fill animates from 0% to 100%
+  // over the autoplay duration. On completion, the slider advances.
+  // Clicking a timeline item jumps to that slide.
+  this.timelineItems = scopedQuery(root, "[" + ATTR.element + "='timeline']");
+  this.timelineFills = [];
+  for (var ti = 0; ti < this.timelineItems.length; ti++) {
+    var fill = this.timelineItems[ti].querySelector("[" + ATTR.element + "='timeline-fill']");
+    if (!fill) {
+      fill = document.createElement("div");
+      fill.setAttribute(ATTR.element, "timeline-fill");
+      this.timelineItems[ti].appendChild(fill);
+    }
+    this.timelineFills.push(fill);
+  }
+  this._hasTimeline = this.timelineItems.length > 0;
 
   // Number trackers — always try scoped first (inside this component).
   // Only fall back to global name-matching when nothing is found inside
@@ -839,6 +864,7 @@ Slider.prototype._updateState = function () {
 
   this._updateScrollbar(true);
   this._updateProgress(true);
+  this._updateTimeline();
   this._updateA11y();
 };
 
@@ -870,6 +896,85 @@ Slider.prototype._updateProgressFromTranslate = function (tx) {
 
   this.progressFillEl.style.transition = "none";
   this.progressFillEl.style.width = pct + "%";
+};
+
+// ── Timeline (per-slide progress bars) ──────────────────────────────────
+// Updates is-active class and triggers fill animation for the current slide.
+Slider.prototype._updateTimeline = function () {
+  if (!this._hasTimeline) return;
+
+  for (var i = 0; i < this.timelineItems.length; i++) {
+    var isActive = i === this.realIndex;
+    var isPast = i < this.realIndex;
+    this.timelineItems[i].classList.toggle("is-active", isActive);
+    this.timelineItems[i].classList.toggle("is-past", isPast);
+
+    // Past slides: fill at 100%, no animation
+    // Future slides: fill at 0%, no animation
+    // Active slide: animated from 0% to 100% over autoplayMs
+    if (this.timelineFills[i]) {
+      if (isPast) {
+        this.timelineFills[i].style.transition = "none";
+        this.timelineFills[i].style.width = "100%";
+      } else if (isActive) {
+        // Active fill: start at 0%, then animate to 100%
+        this.timelineFills[i].style.transition = "none";
+        this.timelineFills[i].style.width = "0%";
+      } else {
+        this.timelineFills[i].style.transition = "none";
+        this.timelineFills[i].style.width = "0%";
+      }
+    }
+  }
+};
+
+// Start the fill animation for the active timeline item.
+// Uses CSS transition for smooth 0→100% over autoplayMs.
+// If the fill was paused partway, it resumes from its current position
+// with the remaining duration so the pace stays consistent.
+Slider.prototype._startTimelineFill = function () {
+  if (!this._hasTimeline) return;
+  if (this.opts.autoplayMs <= 0) return;
+
+  var idx = this.realIndex;
+  if (idx < 0 || idx >= this.timelineFills.length) return;
+
+  var fill = this.timelineFills[idx];
+  if (!fill) return;
+
+  var self = this;
+  var totalDuration = this.opts.autoplayMs;
+
+  // Measure current fill progress (may be >0 if resuming from pause)
+  var parentW = this.timelineItems[idx].getBoundingClientRect().width;
+  var currentW = fill.getBoundingClientRect().width;
+  var progress = parentW > 0 ? currentW / parentW : 0;
+  var remaining = totalDuration * (1 - progress);
+  if (remaining < 50) remaining = totalDuration; // near-complete → restart
+
+  // Force a reflow so the current width is painted before we start the transition
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      fill.style.transition = "width " + remaining + "ms linear";
+      fill.style.width = "100%";
+    });
+  });
+};
+
+// Stop all timeline fill animations (e.g. on pause/drag).
+Slider.prototype._stopTimelineFill = function () {
+  if (!this._hasTimeline) return;
+
+  for (var i = 0; i < this.timelineFills.length; i++) {
+    if (this.timelineFills[i]) {
+      // Freeze the fill at its current width
+      var current = this.timelineFills[i].getBoundingClientRect().width;
+      var parent = this.timelineItems[i].getBoundingClientRect().width;
+      var pct = parent > 0 ? (current / parent) * 100 : 0;
+      this.timelineFills[i].style.transition = "none";
+      this.timelineFills[i].style.width = pct + "%";
+    }
+  }
 };
 
 // animate = true  → thumb slides with same easing as the slider
@@ -1066,6 +1171,19 @@ Slider.prototype._bindControls = function () {
     }
   }
 
+  // Timeline item clicks → jump to that slide
+  if (this.timelineItems) {
+    for (var ti = 0; ti < this.timelineItems.length; ti++) {
+      (function (idx) {
+        self.timelineItems[idx].addEventListener("click", function (e) {
+          e.preventDefault();
+          self.goTo(idx, true);
+          self._restartAutoplay();
+        });
+      })(ti);
+    }
+  }
+
   this.list.addEventListener("transitionend", function (e) {
     if (e.target !== self.list || e.propertyName !== "transform") return;
     self._handleLoopWrap();
@@ -1236,24 +1354,71 @@ Slider.prototype._bindVisibility = function () {
 };
 
 // ── Autoplay ─────────────────────────────────────────────────────────────
+// Two modes:
+//   1. Timeline mode (_hasTimeline): fill animation drives slide advance.
+//      A transitionend listener on the active fill triggers next().
+//   2. Classic mode: setInterval.
 Slider.prototype._startAutoplay = function () {
   if (this.opts.autoplayMs <= 0) return;
   if (this.autoplayTimer) return;
   var self = this;
-  this.autoplayTimer = setInterval(function () {
-    if (!self.opts.loop) {
-      if (self.realIndex >= self.realCount - 1) {
-        self.goTo(0, true);
-        return;
-      }
+
+  if (this._hasTimeline) {
+    // Timeline mode — fill animation drives advancement
+    this._startTimelineFill();
+
+    // Listen for the fill transition to complete → advance
+    if (!this._timelineTransitionBound) {
+      this._timelineTransitionBound = true;
+      // Use event delegation on the root for timeline fills
+      this.root.addEventListener("transitionend", function (e) {
+        // Only react to timeline-fill width transitions
+        if (e.propertyName !== "width") return;
+        var isFill = e.target.getAttribute(ATTR.element) === "timeline-fill";
+        if (!isFill) return;
+
+        // Check this is the ACTIVE fill (not a leftover)
+        var activeIdx = self.realIndex;
+        if (activeIdx < 0 || activeIdx >= self.timelineFills.length) return;
+        if (e.target !== self.timelineFills[activeIdx]) return;
+
+        // Advance to next slide
+        if (!self.opts.loop && self.realIndex >= self.realCount - 1) {
+          self.goTo(0, true);
+        } else {
+          self.next();
+        }
+        // _updateState → _updateTimeline resets fills, then _startAutoplay
+        // fires again via _restartAutoplay in the goTo chain.
+        // We need to kick the fill for the new slide:
+        self._startTimelineFill();
+      });
     }
-    self.next();
-  }, this.opts.autoplayMs);
+
+    // Mark as "running" so _stopAutoplay knows to stop
+    this.autoplayTimer = true;
+  } else {
+    // Classic mode — setInterval
+    this.autoplayTimer = setInterval(function () {
+      if (!self.opts.loop) {
+        if (self.realIndex >= self.realCount - 1) {
+          self.goTo(0, true);
+          return;
+        }
+      }
+      self.next();
+    }, this.opts.autoplayMs);
+  }
 };
 Slider.prototype._stopAutoplay = function () {
-  if (this.autoplayTimer) {
-    clearInterval(this.autoplayTimer);
+  if (this._hasTimeline) {
+    this._stopTimelineFill();
     this.autoplayTimer = null;
+  } else {
+    if (this.autoplayTimer) {
+      clearInterval(this.autoplayTimer);
+      this.autoplayTimer = null;
+    }
   }
 };
 Slider.prototype._restartAutoplay = function () {
@@ -1273,6 +1438,20 @@ Slider.prototype.destroy = function () {
   this.root.classList.remove("is-dragging");
   if (this._skipAutoCreated && this._skipLink && this._skipLink.parentNode) this._skipLink.parentNode.removeChild(this._skipLink);
   if (this._skipTarget && this._skipTarget.parentNode) this._skipTarget.parentNode.removeChild(this._skipTarget);
+
+  // Clean up timeline fills
+  if (this._hasTimeline) {
+    for (var ti = 0; ti < this.timelineFills.length; ti++) {
+      if (this.timelineFills[ti]) {
+        this.timelineFills[ti].style.transition = "";
+        this.timelineFills[ti].style.width = "";
+      }
+    }
+    for (var tj = 0; tj < this.timelineItems.length; tj++) {
+      this.timelineItems[tj].classList.remove("is-active", "is-past");
+    }
+  }
+
   this.root.__zhSliderInit = false;
   delete this.root.__zhSlider;
 };
