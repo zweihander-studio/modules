@@ -217,6 +217,7 @@ Slider.prototype._readOptions = function () {
     spaceBetween: attrNumber(r, "zh-slider-gap", 0),
     gapSet: r.hasAttribute("zh-slider-gap"),
     autoplayMs: reducedMotion ? 0 : attrNumber(r, "zh-slider-autoplay", 0),
+    skipLink: attrBool(r, "zh-slider-skiplink", false),
     pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", true),
     threshold: attrNumber(r, "zh-slider-drag-threshold", 5),
     easing: attr(r, "zh-slider-easing", "cubic-bezier(.22,.61,.36,1)"),
@@ -444,6 +445,11 @@ Slider.prototype._setupA11y = function () {
 };
 
 Slider.prototype._createSkipLink = function () {
+  // Skip link is opt-in: only create when zh-slider-skiplink="true"
+  // or when a [zh-slider-skip] element already exists in the markup.
+  var hasManualSkip = !!this.root.querySelector("[zh-slider-skip]");
+  if (!this.opts.skipLink && !hasManualSkip) return;
+
   var root = this.root;
   var list = this.list;
   var listWrapper = list.parentElement || list;
