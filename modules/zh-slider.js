@@ -371,11 +371,6 @@ Slider.prototype._setupDom = function () {
     this.timelineFills.push(fill);
   }
   this._hasTimeline = this.timelineItems.length > 0;
-  if (this._hasTimeline) {
-    console.log("[zh-slider] timeline found:", this.timelineItems.length, "items,", this.timelineFills.length, "fills");
-  } else {
-    console.log("[zh-slider] no timeline items found");
-  }
 
   // Number trackers — always try scoped first (inside this component).
   // Only fall back to global name-matching when nothing is found inside
@@ -462,8 +457,15 @@ Slider.prototype._createSkipLink = function () {
   skipTarget.setAttribute("aria-hidden", "true");
   skipTarget.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);";
 
-  if (listWrapper.nextSibling) {
-    root.insertBefore(skipTarget, listWrapper.nextSibling);
+  // Walk up from listWrapper to find the direct child of root, then
+  // insert after that. This handles nested wrappers like
+  //   root > gallery_bg > list-wrapper > list
+  var insertAfter = listWrapper;
+  while (insertAfter.parentElement && insertAfter.parentElement !== root) {
+    insertAfter = insertAfter.parentElement;
+  }
+  if (insertAfter.nextSibling) {
+    root.insertBefore(skipTarget, insertAfter.nextSibling);
   } else {
     root.appendChild(skipTarget);
   }
@@ -1364,7 +1366,6 @@ Slider.prototype._bindVisibility = function () {
 //      A transitionend listener on the active fill triggers next().
 //   2. Classic mode: setInterval.
 Slider.prototype._startAutoplay = function () {
-  console.log("[zh-slider] _startAutoplay called, autoplayMs:", this.opts.autoplayMs, "hasTimeline:", this._hasTimeline, "timer:", this.autoplayTimer);
   if (this.opts.autoplayMs <= 0) return;
   if (this.autoplayTimer) return;
   var self = this;
