@@ -956,16 +956,19 @@ Slider.prototype._updateTimeline = function () {
     this.timelineItems[i].classList.toggle("is-active", isActive);
     this.timelineItems[i].classList.toggle("is-past", isPast);
 
-    // Past slides: fill at 100%, no animation
-    // Future slides: fill at 0%, no animation
-    // Active slide: animated from 0% to 100% over autoplayMs
+    // Active slide: starts at 0% (no anim), then _startTimelineFill
+    //   animates to 100% over autoplayMs.
+    // Past slide: was at 100% (filled), now animates smoothly back to 0%
+    //   so it "empties" out as the next one fills.
+    // Future slide: stays at 0%, no animation.
     if (this.timelineFills[i]) {
-      if (isPast) {
+      if (isActive) {
         this.timelineFills[i].style.transition = "none";
-        this.timelineFills[i].style.width = "100%";
-      } else if (isActive) {
-        // Active fill: start at 0%, then animate to 100%
-        this.timelineFills[i].style.transition = "none";
+        this.timelineFills[i].style.width = "0%";
+      } else if (isPast) {
+        // Smooth fade-out using the slider's own duration/easing
+        this.timelineFills[i].style.transition =
+          "width " + this.opts.duration + "ms " + this.opts.easing;
         this.timelineFills[i].style.width = "0%";
       } else {
         this.timelineFills[i].style.transition = "none";
