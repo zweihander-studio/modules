@@ -419,16 +419,39 @@ Slider.prototype._setupA11y = function () {
   if (!root.getAttribute("aria-roledescription")) root.setAttribute("aria-roledescription", "carousel");
   if (!root.getAttribute("aria-label")) root.setAttribute("aria-label", sliderName);
 
-  // 2. Slide list is a live region — polite so it doesn't interrupt
+  // 2. Slide list is a live region — polite so it doesn't interrupt.
+  //    Strip any inherited role="list" (e.g. from Webflow CMS collection
+  //    lists). The W3C APG carousel pattern uses role="group" on slides,
+  //    not role="listitem", so role="list" on the wrapper creates a
+  //    mismatch that screenreaders flag as an error.
+  if (this.list.getAttribute("role") === "list") {
+    this.list.removeAttribute("role");
+  }
+  // Webflow CMS often wraps items in a .w-dyn-items div with role="list".
+  // If that sits between the list and the items, strip its role too.
+  var innerList = this.list.querySelector("[role='list']");
+  if (innerList) innerList.removeAttribute("role");
+
   this.list.setAttribute("aria-live", "off"); // "off" during drag/autoplay, "polite" when idle
   this.list.setAttribute("aria-atomic", "false");
 
-  // 3. Each original slide gets role + roledescription + label
+  // 3. Each slide (real + clones) gets role="group" so the W3C APG
+  //    carousel pattern is consistent — overrides any role="listitem"
+  //    Webflow CMS added. Clones keep aria-hidden="true" (set earlier)
+  //    and don't get an aria-label so they're invisible to screenreaders.
   for (var i = 0; i < this.originalItems.length; i++) {
     var slide = this.originalItems[i];
     slide.setAttribute("role", "group");
     slide.setAttribute("aria-roledescription", "slide");
     slide.setAttribute("aria-label", (i + 1) + " of " + this.realCount);
+  }
+  // Also fix up any cloned slides (loop mode)
+  for (var ci = 0; ci < this.items.length; ci++) {
+    var it = this.items[ci];
+    if (it.getAttribute("zh-slider-clone") === "true") {
+      it.setAttribute("role", "group");
+      it.setAttribute("aria-roledescription", "slide");
+    }
   }
 
   // 4. Nav buttons get aria-labels if not already set
