@@ -219,7 +219,7 @@ Slider.prototype._readOptions = function () {
     autoplayMs: reducedMotion ? 0 : attrNumber(r, "zh-slider-autoplay", 0),
     skipLink: attrBool(r, "zh-slider-skiplink", false),
     syncTo: attr(r, "zh-slider-sync", null),
-    pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", true),
+    pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", false),
     threshold: attrNumber(r, "zh-slider-drag-threshold", 5),
     easing: attr(r, "zh-slider-easing", "cubic-bezier(.22,.61,.36,1)"),
     padNumbers: attrBool(r, "zh-slider-pad-numbers", true),
