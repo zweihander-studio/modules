@@ -220,6 +220,7 @@ Slider.prototype._readOptions = function () {
     skipLink: attrBool(r, "zh-slider-skiplink", false),
     syncTo: attr(r, "zh-slider-sync", null),
     pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", false),
+    drag: attrBool(r, "zh-slider-drag", true),
     threshold: attrNumber(r, "zh-slider-drag-threshold", 5),
     easing: attr(r, "zh-slider-easing", "cubic-bezier(.22,.61,.36,1)"),
     padNumbers: attrBool(r, "zh-slider-pad-numbers", true),
@@ -1248,6 +1249,11 @@ Slider.prototype._bindControls = function () {
 // No setPointerCapture, no preventDefault on pointerdown, no forced styles.
 // Links, hover interactions, and Webflow IX all work normally.
 Slider.prototype._bindPointer = function () {
+  // Drag can be disabled entirely via zh-slider-drag="false".
+  // Useful for hero sliders where clicking/interacting should never
+  // hijack the pointer for sliding.
+  if (!this.opts.drag) return;
+
   var self = this;
   var wrapper = this.list.parentElement || this.list;
   var allowClick = true;
