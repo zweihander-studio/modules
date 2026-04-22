@@ -361,10 +361,23 @@ Slider.prototype._setupDom = function () {
   // When autoplay is active, the current item's fill animates from 0% to 100%
   // over the autoplay duration. On completion, the slider advances.
   // Clicking a timeline item jumps to that slide.
+  //
+  // Two ways to hook up timeline items:
+  //   1. Inside the slider root: [zh-slider-element="timeline"] (scoped)
+  //   2. Anywhere on the page: [zh-slider-timeline="sliderName"] (global)
+  //      — useful when the timeline lives outside the slider wrapper
+  //      (e.g. a sibling progress bar component).
   this.timelineItems = scopedQuery(root, "[" + ATTR.element + "='timeline']");
+  if (!this.timelineItems.length && this.name) {
+    this.timelineItems = Array.prototype.slice.call(
+      document.querySelectorAll("[zh-slider-timeline='" + this.name + "']")
+    );
+  }
   this.timelineFills = [];
   for (var ti = 0; ti < this.timelineItems.length; ti++) {
-    var fill = this.timelineItems[ti].querySelector("[" + ATTR.element + "='timeline-fill']");
+    var fill = this.timelineItems[ti].querySelector(
+      "[" + ATTR.element + "='timeline-fill'], [zh-slider-timeline-fill]"
+    );
     if (!fill) {
       fill = document.createElement("div");
       fill.setAttribute(ATTR.element, "timeline-fill");
@@ -1403,15 +1416,13 @@ Slider.prototype._startAutoplay = function () {
     // Timeline mode — fill animation drives advancement
     this._startTimelineFill();
 
-    // Listen for the fill transition to complete → advance
+    // Listen for the fill transition to complete → advance.
+    // We bind directly to each fill element (not delegated on root) because
+    // timeline items can live outside the slider root.
     if (!this._timelineTransitionBound) {
       this._timelineTransitionBound = true;
-      // Use event delegation on the root for timeline fills
-      this.root.addEventListener("transitionend", function (e) {
-        // Only react to timeline-fill width transitions
+      var onFillEnd = function (e) {
         if (e.propertyName !== "width") return;
-        var isFill = e.target.getAttribute(ATTR.element) === "timeline-fill";
-        if (!isFill) return;
 
         // Check this is the ACTIVE fill (not a leftover)
         var activeIdx = self.realIndex;
@@ -1428,7 +1439,11 @@ Slider.prototype._startAutoplay = function () {
         // fires again via _restartAutoplay in the goTo chain.
         // We need to kick the fill for the new slide:
         self._startTimelineFill();
-      });
+      };
+      // Attach the listener to every fill element
+      for (var fi = 0; fi < this.timelineFills.length; fi++) {
+        this.timelineFills[fi].addEventListener("transitionend", onFillEnd);
+      }
     }
 
     // Mark as "running" so _stopAutoplay knows to stop
