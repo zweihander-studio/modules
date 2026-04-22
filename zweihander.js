@@ -33,7 +33,12 @@ async function loadModule(name) {
   window.Zweihander._loaded[name] = "loading";
 
   try {
-    const mod = await import(`${baseUrl}/modules/zh-${name}.js`);
+    // Use .min.js — jsDelivr auto-minifies on the fly when served from
+    // cdn.jsdelivr.net. For local/self-hosted use, fall back to the
+    // regular .js if .min.js doesn't exist.
+    const useMin = /cdn\.jsdelivr\.net/.test(baseUrl);
+    const ext = useMin ? ".min.js" : ".js";
+    const mod = await import(`${baseUrl}/modules/zh-${name}${ext}`);
     if (mod && typeof mod.init === "function") {
       // Boot via Webflow.push if available, otherwise run directly.
       if (typeof window.Webflow !== "undefined" && window.Webflow.push) {
