@@ -218,6 +218,7 @@ Slider.prototype._readOptions = function () {
     gapSet: r.hasAttribute("zh-slider-gap"),
     autoplayMs: reducedMotion ? 0 : attrNumber(r, "zh-slider-autoplay", 0),
     skipLink: attrBool(r, "zh-slider-skiplink", false),
+    syncTo: attr(r, "zh-slider-sync", null),
     pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", true),
     threshold: attrNumber(r, "zh-slider-drag-threshold", 5),
     easing: attr(r, "zh-slider-easing", "cubic-bezier(.22,.61,.36,1)"),
@@ -840,6 +841,26 @@ Slider.prototype.goTo = function (realIndex, animate) {
 
   this._setTranslate(x, animate);
   this._updateState();
+  this._notifySync();
+};
+
+// Notify all sliders that sync to this one (by name), making them
+// jump to the same realIndex. Uses a flag to avoid infinite loops
+// when sync is bidirectional (A syncs to B, B syncs to A).
+Slider.prototype._notifySync = function () {
+  if (this._syncing) return;
+  if (!this.name) return;
+
+  var targets = document.querySelectorAll("[zh-slider-sync='" + this.name + "']");
+  for (var i = 0; i < targets.length; i++) {
+    var inst = targets[i].__zhSlider;
+    if (!inst || inst === this) continue;
+    if (inst.realIndex === this.realIndex) continue;
+
+    inst._syncing = true;
+    inst.goTo(this.realIndex, true);
+    inst._syncing = false;
+  }
 };
 
 Slider.prototype.next = function () { this.goTo(this.realIndex + 1, true); };
@@ -1374,6 +1395,8 @@ Slider.prototype._bindVisibility = function () {
 Slider.prototype._startAutoplay = function () {
   if (this.opts.autoplayMs <= 0) return;
   if (this.autoplayTimer) return;
+  // Synced sliders follow their master — they don't autoplay independently.
+  if (this.opts.syncTo) return;
   var self = this;
 
   if (this._hasTimeline) {
