@@ -944,10 +944,34 @@ Slider.prototype._updateState = function () {
 // Progress is based on which individual slide is active (realIndex),
 // NOT on the scroll-bound. So with 5 slides & 3 visible, slide 1 = 0%,
 // slide 3 = 50%, slide 5 = 100%.
+// Total scrollable distance in px.
+//  - loop:      realCount slides each slideSize wide.
+//  - non-loop:  content width minus one viewport, i.e. the last slide sits
+//               flush against the right edge (matches the clamp in goTo()).
+// This is the denominator progress/scrollbar must divide by so that 100%
+// lines up exactly with the last reachable position — not realCount-1.
+Slider.prototype._travelDist = function () {
+  if (this.opts.loop) {
+    return Math.max(1, this.realCount - 1) * this.slideSize;
+  }
+  var dist = (this.realCount - 1) * this.slideSize - (this.containerSize - this.slideSize);
+  // When all slides fit in view there's nothing to scroll → avoid div-by-0.
+  return dist > 0 ? dist : 0;
+};
+
+// Discrete progress: fraction of the *reachable* travel the current slide
+// represents. In non-loop mode the last few slides share the final viewport,
+// so the reachable index range is smaller than realCount-1.
+Slider.prototype._maxIndex = function () {
+  if (this.opts.loop) return Math.max(1, this.realCount - 1);
+  if (this.slideSize <= 0) return Math.max(1, this.realCount - 1);
+  var reachable = this._travelDist() / this.slideSize;
+  return Math.max(1, reachable);
+};
+
 Slider.prototype._updateProgress = function (animate) {
   if (!this.progressFillEl) return;
-  var maxSlide = Math.max(1, this.realCount - 1);
-  var pct = clamp(this.realIndex / maxSlide, 0, 1) * 100;
+  var pct = clamp(this.realIndex / this._maxIndex(), 0, 1) * 100;
 
   this.progressFillEl.style.transition = animate
     ? "width " + this.opts.duration + "ms " + this.opts.easing
@@ -958,9 +982,8 @@ Slider.prototype._updateProgress = function (animate) {
 // Called during slide-drag so progress follows in real time.
 Slider.prototype._updateProgressFromTranslate = function (tx) {
   if (!this.progressFillEl) return;
-  var maxSlide = Math.max(1, this.realCount - 1);
-  var totalTravel = maxSlide * this.slideSize;
-  if (totalTravel <= 0) return;
+  var totalTravel = this._travelDist();
+  if (totalTravel <= 0) { this.progressFillEl.style.width = "0%"; return; }
 
   var adjusted = -(tx + this.loopOffset * this.slideSize);
   var pct = clamp(adjusted / totalTravel, 0, 1) * 100;
@@ -1061,8 +1084,7 @@ Slider.prototype._updateScrollbar = function (animate) {
   var ratio = clamp(spv / this.realCount, 0.05, 1);
   var trackW = this.scrollbarEl.clientWidth;
   var thumbW = trackW * ratio;
-  var maxSlide = Math.max(1, this.realCount - 1);
-  var progress = this.realCount <= 1 ? 0 : this.realIndex / maxSlide;
+  var progress = clamp(this.realIndex / this._maxIndex(), 0, 1);
   var x = (trackW - thumbW) * progress;
 
   this.scrollbarThumbEl.style.width = thumbW + "px";
@@ -1085,9 +1107,8 @@ Slider.prototype._updateScrollbarFromTranslate = function (tx) {
   var maxThumbX = trackW - thumbW;
   if (maxThumbX <= 0) return;
 
-  // Total travel based on individual slides, not scroll-bound
-  var maxSlide = Math.max(1, this.realCount - 1);
-  var totalTravel = maxSlide * this.slideSize;
+  // Total travel matches the real scroll-bound (non-loop: content - viewport)
+  var totalTravel = this._travelDist();
   if (totalTravel <= 0) return;
 
   // In loop mode, adjust for the clone offset
@@ -1144,16 +1165,18 @@ Slider.prototype._bindScrollbarDrag = function () {
     self.scrollbarThumbEl.style.transform = "translate3d(" + newX + "px, 0, 0)";
 
     // Move slides CONTINUOUSLY — smooth, no snapping during drag.
-    // The thumb position maps to a fractional slide index.
-    var maxSlide = Math.max(1, self.realCount - 1);
-    var continuousSlide = progress * maxSlide;
+    // The thumb position (0..1) maps to a fraction of the real travel
+    // distance, so the slides reach their flush right-edge exactly when
+    // the thumb hits the end of its track.
+    var travelSlides = self.slideSize > 0 ? self._travelDist() / self.slideSize : 0;
+    var continuousSlide = progress * travelSlides;
     var translateX = -(continuousSlide + self.loopOffset) * self.slideSize;
     self.list.style.transition = "none";
     self.list.style.transform = "translate3d(" + translateX + "px, 0, 0)";
     self.translate = translateX;
 
     // Update realIndex for counter (this one does snap — integers only)
-    var snappedReal = Math.round(continuousSlide);
+    var snappedReal = clamp(Math.round(continuousSlide), 0, self.realCount - 1);
     if (snappedReal !== self.realIndex) {
       self.realIndex = snappedReal;
       self.index = snappedReal + self.loopOffset;
@@ -1209,8 +1232,7 @@ Slider.prototype._bindScrollbarDrag = function () {
     // Center the thumb on click position
     var newX = clamp(clickX - thumbW / 2, 0, maxThumbX);
     var progress = newX / maxThumbX;
-    var maxSlide = Math.max(1, self.realCount - 1);
-    var targetReal = Math.round(progress * maxSlide);
+    var targetReal = Math.round(progress * self._maxIndex());
     self.goTo(targetReal, true);
     self._restartAutoplay();
   });
