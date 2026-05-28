@@ -969,9 +969,18 @@ Slider.prototype._maxIndex = function () {
   return Math.max(1, reachable);
 };
 
+// Highest whole slide index reachable by discrete steps (arrows/bullets).
+// Progress bar follows the COUNTER: equal steps across all slides, so the
+// denominator is realCount-1 regardless of how many slides share the
+// final viewport. (The scrollbar instead follows scroll position — see
+// _updateScrollbar — so its thumb travels fully left-to-right.)
+Slider.prototype._lastIndex = function () {
+  return Math.max(1, this.realCount - 1);
+};
+
 Slider.prototype._updateProgress = function (animate) {
   if (!this.progressFillEl) return;
-  var pct = clamp(this.realIndex / this._maxIndex(), 0, 1) * 100;
+  var pct = clamp(this.realIndex / this._lastIndex(), 0, 1) * 100;
 
   this.progressFillEl.style.transition = animate
     ? "width " + this.opts.duration + "ms " + this.opts.easing
@@ -980,13 +989,16 @@ Slider.prototype._updateProgress = function (animate) {
 };
 
 // Called during slide-drag so progress follows in real time.
+// Progress bar follows the COUNTER scale (realCount-1 slides), matching the
+// discrete arrow-click behaviour, so it fills 0→100% evenly across slides.
 Slider.prototype._updateProgressFromTranslate = function (tx) {
   if (!this.progressFillEl) return;
-  var totalTravel = this._travelDist();
-  if (totalTravel <= 0) { this.progressFillEl.style.width = "0%"; return; }
+  if (this.slideSize <= 0) return;
+  var maxSlide = Math.max(1, this.realCount - 1);
 
-  var adjusted = -(tx + this.loopOffset * this.slideSize);
-  var pct = clamp(adjusted / totalTravel, 0, 1) * 100;
+  // Current fractional slide position (0 .. realCount-1)
+  var pos = -(tx + this.loopOffset * this.slideSize) / this.slideSize;
+  var pct = clamp(pos / maxSlide, 0, 1) * 100;
 
   this.progressFillEl.style.transition = "none";
   this.progressFillEl.style.width = pct + "%";
@@ -1076,8 +1088,10 @@ Slider.prototype._stopTimelineFill = function () {
 
 // animate = true  → thumb slides with same easing as the slider
 // animate = false → instant (used during drag)
-// Scrollbar tracks individual slides (like progress), NOT the scroll-bound.
-// With 5 slides & 3 visible: slide 1 → thumb at 0%, slide 5 → thumb at 100%.
+// Scrollbar thumb follows SCROLL POSITION: the thumb (fixed width = how much
+// is visible) travels fully left→right, sitting flush right exactly when the
+// last slide is flush right. This differs from the progress bar, which fills
+// on the counter scale.
 Slider.prototype._updateScrollbar = function (animate) {
   if (!this.scrollbarThumbEl || !this.scrollbarEl) return;
   var spv = this.effectiveSpv || 1;
@@ -1194,9 +1208,12 @@ Slider.prototype._bindScrollbarDrag = function () {
       for (var c = 0; c < self.currentEls.length; c++) self.currentEls[c].textContent = curStr;
     }
 
-    // Update progress bar continuously
+    // Update progress bar continuously — on the COUNTER scale (realCount-1),
+    // not the thumb fraction, so the progress fill stays consistent with the
+    // arrow-click behaviour.
     if (self.progressFillEl) {
-      var pct = clamp(progress, 0, 1) * 100;
+      var maxSlide = Math.max(1, self.realCount - 1);
+      var pct = clamp(continuousSlide / maxSlide, 0, 1) * 100;
       self.progressFillEl.style.transition = "none";
       self.progressFillEl.style.width = pct + "%";
     }
