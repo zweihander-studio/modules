@@ -1091,6 +1091,34 @@ Slider.prototype._marqueeWrap = function (tx) {
 Slider.prototype._marqueeRender = function (tx) {
   this.translate = tx;
   this.list.style.transform = "translate3d(" + tx + "px, 0, 0)";
+  this._marqueeTrackIndex();
+};
+
+// Counters (and bullets) follow the card nearest the left edge, so they
+// tick along with the scroll, the arrows and dragging. The DOM is only
+// touched when that card changes, not every frame.
+Slider.prototype._marqueeTrackIndex = function () {
+  var mq = this._mq;
+  if (!mq || !mq.offsets) return;
+  var p = -this.translate, offs = mq.offsets, best = 0;
+  for (var i = 1; i < offs.length; i++) {
+    if (Math.abs(offs[i] - p) < Math.abs(offs[best] - p)) best = i;
+    else if (offs[i] > p) break;
+  }
+  var real = this._realIndexFromDisplayed(best);
+  if (real === mq.shown) return;
+  mq.shown = real;
+  this.realIndex = real;
+  this.index = best;
+
+  var str = this.opts.padNumbers ? pad(real + 1) : String(real + 1);
+  for (var c = 0; c < this.currentEls.length; c++) this.currentEls[c].textContent = str;
+  if (this.bullets) {
+    for (var b = 0; b < this.bullets.length; b++) {
+      this.bullets[b].classList.toggle("is-active", b === real);
+      this.bullets[b].setAttribute("aria-selected", b === real ? "true" : "false");
+    }
+  }
 };
 
 Slider.prototype._marqueePaused = function () {
@@ -1180,10 +1208,10 @@ Slider.prototype._marqueeGoTo = function (realIndex) {
   var mq = this._mq;
   var r = ((realIndex % this.realCount) + this.realCount) % this.realCount;
   this._marqueeRender(this._marqueeWrap(this.translate));
+  this._marqueeTweenTo(-mq.offsets[this.loopOffset + r]);
+  // Counters catch up on their own as the glide passes each card; sync
+  // partners get the destination straight away.
   this.realIndex = r;
-  this.index = this.loopOffset + r;
-  this._marqueeTweenTo(-mq.offsets[this.index]);
-  this._updateState();
   this._notifySync();
 };
 
@@ -1249,7 +1277,8 @@ Slider.prototype._maxIndex = function () {
 };
 
 Slider.prototype._updateProgress = function (animate) {
-  if (!this.progressFillEl) return;
+  // An endless marquee has no start or end, so there's no progress to show.
+  if (!this.progressFillEl || this.opts.marquee) return;
   var travel = this._travelDist();
   if (travel <= 0) {
     this.progressFillEl.style.width = "100%";
@@ -1377,7 +1406,7 @@ Slider.prototype._stopTimelineFill = function () {
 // last slide is flush right. This differs from the progress bar, which fills
 // on the counter scale.
 Slider.prototype._updateScrollbar = function (animate) {
-  if (!this.scrollbarThumbEl || !this.scrollbarEl) return;
+  if (!this.scrollbarThumbEl || !this.scrollbarEl || this.opts.marquee) return;
   var spv = this.effectiveSpv || 1;
   var ratio = clamp(spv / this.realCount, 0.05, 1);
   var trackW = this.scrollbarEl.clientWidth;
@@ -1420,7 +1449,8 @@ Slider.prototype._updateScrollbarFromTranslate = function (tx) {
 
 // ── Scrollbar drag ────────────────────────────────────────────────────────
 Slider.prototype._bindScrollbarDrag = function () {
-  if (!this.scrollbarEl || !this.scrollbarThumbEl) return;
+  // Dragging a thumb would fight the marquee's own movement.
+  if (!this.scrollbarEl || !this.scrollbarThumbEl || this.opts.marquee) return;
   var self = this;
   var dragging = false;
   var startX = 0;

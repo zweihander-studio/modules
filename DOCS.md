@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.4.0`
+**Huidige versie:** `v1.4.1`
 
 ---
 
@@ -12,7 +12,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.4.0/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.4.1/zweihander.min.js"
   zh-auto>
 </script>
 ```
@@ -27,7 +27,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.4.0/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.4.1/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -207,6 +207,7 @@ Hoe het zich gedraagt:
 | Slepen | Volgt je vinger of muis zonder te snappen. Bij loslaten glijdt hij met jouw vaart uit en gaat daarna terug naar het normale tempo |
 | Tikken op touch | Houdt de marquee vast zolang je vinger erop staat, zodat de tik op de juiste kaart landt |
 | Toetsenbord | Pijltjestoetsen stappen per kaart. Met toetsenbord-focus in de slider staat hij stil (WCAG 2.2.2) |
+| Tellers | `zh-slider-current` toont de kaart die links in beeld staat en loopt mee met scrollen, pijltjes en slepen. `zh-slider-total` werkt zoals altijd |
 
 Goed om te weten:
 
@@ -215,7 +216,7 @@ Goed om te weten:
 - `zh-slider-duration` en `zh-slider-easing` gelden hier alleen voor de pijltjes. Gebruik dus geen `duration="4000"` met `easing="linear"` meer, dat was de oude workaround.
 - Wil je geen pauze bij hover, zet dan `zh-slider-pause-on-hover="false"`.
 - Bij `prefers-reduced-motion` beweegt hij niet uit zichzelf. Pijltjes en slepen werken dan nog wel.
-- Scrollbar, progress bar en tellers zijn niet bedoeld voor de marquee.
+- Progress bar en scrollbar doen niets in marquee-modus, want een marquee heeft geen begin of eind. Verberg ze in Webflow als ze in je component zitten.
 
 ### Slider sync
 
@@ -458,7 +459,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.4.0   ← specifieke versie (aanbevolen)
+@v1.4.1   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -466,6 +467,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.4.1 | Tellers werken in marquee-modus. Progress bar en scrollbar staan daar bewust uit |
 | v1.4.0 | Marquee-modus (`zh-slider-marquee`). `zh-slider-autoplay` accepteert nu `true`/`false`. Kaarten die links zijn blokkeren het slepen niet meer |
 | v1.3.4 | Fix progress bar: 100% wanneer laatste slide zichtbaar is (multi-per-view) |
 | v1.3.3 | Fix progress bar scaling: counter-based index |
