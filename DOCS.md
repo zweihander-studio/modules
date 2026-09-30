@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.3.4`
+**Huidige versie:** `v1.4.0`
 
 ---
 
@@ -12,7 +12,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.3.4/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.4.0/zweihander.min.js"
   zh-auto>
 </script>
 ```
@@ -27,7 +27,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.3.4/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.4.0/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -92,12 +92,13 @@ Alle opties staan als attributen op het root-element (`[zh-slider]`).
 | `zh-slider-duration` | number | `500` | Animatieduur in ms |
 | `zh-slider-per-view` | number/`"auto"` | `1` | Aantal zichtbare slides. `"auto"` = laat CSS de breedte bepalen |
 | `zh-slider-gap` | number | `0` | Ruimte tussen slides in px. Als niet gezet, bepaalt je CSS de gap |
-| `zh-slider-autoplay` | number | `0` | Autoplay interval in ms. `0` = uit |
+| `zh-slider-autoplay` | `true`/`false`/number | uit | `true` = aan met 4000 ms, `false` of `0` = uit, een getal = eigen interval in ms |
+| `zh-slider-marquee` | `true`/`false`/number | uit | Doorlopende marquee. `true` = 50 px per seconde, een getal = eigen snelheid in px per seconde. Zie [Marquee](#marquee) |
 | `zh-slider-drag` | boolean | `true` | Touch/mouse drag aan/uit |
 | `zh-slider-drag-threshold` | number | `5` | Minimale px voordat drag start (voorkomt accidentele drags) |
 | `zh-slider-easing` | string | `"cubic-bezier(.22,.61,.36,1)"` | CSS easing voor de slide-animatie |
 | `zh-slider-pad-numbers` | boolean | `true` | Tellers met voorloop-nul (`01` ipv `1`) |
-| `zh-slider-pause-on-hover` | boolean | `false` | Autoplay pauzeert bij hover |
+| `zh-slider-pause-on-hover` | boolean | `false` (marquee: `true`) | Autoplay of marquee pauzeert bij hover met de muis |
 | `zh-slider-sync` | string | `null` | Naam van een andere slider om mee te syncen |
 | `zh-slider-skiplink` | boolean | `false` | Voeg een skip-link toe voor toetsenbord-gebruikers (WCAG) |
 | `zh-slider-pagination-clickable` | boolean | `true` | Klikbare pagination bullets |
@@ -177,6 +178,44 @@ Timeline items buiten de slider (bv. in een sibling component):
   <div zh-slider-timeline-fill></div>
 </div>
 ```
+
+### Marquee
+
+Een slider die continu en lineair doorloopt, bijvoorbeeld voor een logo-wall. Pijltjes, slepen en hover blijven gewoon werken.
+
+```html
+<div zh-slider="logos" zh-slider-marquee="40" zh-slider-duration="600">
+  <div class="list-wrapper">
+    <div zh-slider-list>
+      <a zh-slider-item href="/klant-a">Logo A</a>
+      <a zh-slider-item href="/klant-b">Logo B</a>
+      <a zh-slider-item href="/klant-c">Logo C</a>
+    </div>
+  </div>
+  <button zh-slider-element="prev">←</button>
+  <button zh-slider-element="next">→</button>
+</div>
+```
+
+Hoe het zich gedraagt:
+
+| Actie | Gedrag |
+|-------|--------|
+| Niets doen | Loopt continu met de ingestelde snelheid (px per seconde) |
+| Hover met de muis | Remt vloeiend af tot stilstand, zodat je op een kaart kunt klikken. Na het verlaten trekt hij weer rustig op |
+| Pijltje | Glijdt vanaf de huidige positie naar de rand van de volgende of vorige kaart, in `zh-slider-duration` ms. Snel meerdere keren klikken telt op |
+| Slepen | Volgt je vinger of muis zonder te snappen. Bij loslaten glijdt hij met jouw vaart uit en gaat daarna terug naar het normale tempo |
+| Tikken op touch | Houdt de marquee vast zolang je vinger erop staat, zodat de tik op de juiste kaart landt |
+| Toetsenbord | Pijltjestoetsen stappen per kaart. Met toetsenbord-focus in de slider staat hij stil (WCAG 2.2.2) |
+
+Goed om te weten:
+
+- `zh-slider-marquee` zet automatisch `loop` aan en `autoplay` uit. Die hoef je dus niet mee te geven.
+- Kaarten mogen verschillende breedtes hebben. Laat `zh-slider-per-view` weg en bepaal de breedte in Webflow.
+- `zh-slider-duration` en `zh-slider-easing` gelden hier alleen voor de pijltjes. Gebruik dus geen `duration="4000"` met `easing="linear"` meer, dat was de oude workaround.
+- Wil je geen pauze bij hover, zet dan `zh-slider-pause-on-hover="false"`.
+- Bij `prefers-reduced-motion` beweegt hij niet uit zichzelf. Pijltjes en slepen werken dan nog wel.
+- Scrollbar, progress bar en tellers zijn niet bedoeld voor de marquee.
 
 ### Slider sync
 
@@ -419,7 +458,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.3.4   ← specifieke versie (aanbevolen)
+@v1.4.0   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -427,6 +466,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.4.0 | Marquee-modus (`zh-slider-marquee`). `zh-slider-autoplay` accepteert nu `true`/`false`. Kaarten die links zijn blokkeren het slepen niet meer |
 | v1.3.4 | Fix progress bar: 100% wanneer laatste slide zichtbaar is (multi-per-view) |
 | v1.3.3 | Fix progress bar scaling: counter-based index |
 | v1.3.2 | Laad geminificeerde modules via jsDelivr CDN |

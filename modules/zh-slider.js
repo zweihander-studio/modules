@@ -30,6 +30,10 @@
  *     <div zh-slider-total="hero">1</div>
  *   </div>
  *
+ * Marquee (continuous scroll, e.g. a logo wall; arrows, drag and
+ * pause-on-hover keep working):
+ *   <div zh-slider="logos" zh-slider-marquee="40">…</div>
+ *
  * Style it however you like in Webflow. The script only sets dynamic
  * transform/transition values inline and toggles a few state classes:
  *   - is-active   on current pagination bullet, slide & timeline item
@@ -70,6 +74,18 @@ function attrNumber(el, name, fallback) {
   if (v === null) return fallback;
   var n = parseFloat(v);
   return isNaN(n) ? fallback : n;
+}
+// On/off-or-number attribute (autoplay, marquee):
+//   absent, "false", "0"  → 0 (off)
+//   "true" or empty       → onValue (the default when switched on)
+//   a number              → that number
+function attrToggleNumber(el, name, onValue) {
+  if (!el || !el.hasAttribute(name)) return 0;
+  var raw = (el.getAttribute(name) || "").trim().toLowerCase();
+  if (raw === "" || raw === "true") return onValue;
+  if (raw === "false") return 0;
+  var n = parseFloat(raw);
+  return isNaN(n) || n < 0 ? 0 : n;
 }
 function attrJSON(el, name, fallback) {
   var v = attr(el, name, null);
@@ -191,6 +207,7 @@ function Slider(root) {
   this._applyBreakpoint();
   this.layout(true);
   this.goTo(0, false);
+  this._initMarquee();
   this._startAutoplay();
 
   root.__zhSlider = this;
@@ -209,17 +226,27 @@ Slider.prototype._readOptions = function () {
   // and use a minimal transition duration so slides still snap (but fast).
   var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  // Marquee: continuous linear scroll in px/second. It needs the loop
+  // clones and replaces autoplay, so it forces loop on and autoplay off.
+  // Under reduced motion it stays a marquee-style slider that doesn't move
+  // on its own (speed 0), so the arrows and drag keep working.
+  var marqueeSpeed = attrToggleNumber(r, "zh-slider-marquee", 50);
+  var marquee = marqueeSpeed > 0;
+
   return {
-    loop: attrBool(r, "zh-slider-loop", false),
+    marquee: marquee,
+    marqueeSpeed: reducedMotion ? 0 : marqueeSpeed,
+    loop: marquee || attrBool(r, "zh-slider-loop", false),
     duration: reducedMotion ? 0 : attrNumber(r, "zh-slider-duration", 500),
     slidesPerView: this._parseSpv(attr(r, "zh-slider-per-view", "1")),
     perViewSet: r.hasAttribute("zh-slider-per-view"),
     spaceBetween: attrNumber(r, "zh-slider-gap", 0),
     gapSet: r.hasAttribute("zh-slider-gap"),
-    autoplayMs: reducedMotion ? 0 : attrNumber(r, "zh-slider-autoplay", 0),
+    autoplayMs: reducedMotion || marquee ? 0 : attrToggleNumber(r, "zh-slider-autoplay", 4000),
     skipLink: attrBool(r, "zh-slider-skiplink", false),
     syncTo: attr(r, "zh-slider-sync", null),
-    pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", false),
+    // A marquee pauses on hover by default so people can click a card.
+    pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", marquee),
     drag: attrBool(r, "zh-slider-drag", true),
     threshold: attrNumber(r, "zh-slider-drag-threshold", 5),
     easing: attr(r, "zh-slider-easing", "cubic-bezier(.22,.61,.36,1)"),
@@ -291,6 +318,18 @@ Slider.prototype._setupDom = function () {
       spv = Math.ceil(this.opts.slidesPerView);
     }
     this.loopOffset = Math.max(spv, 1);
+
+    // A marquee can show any stretch of the list at any moment, so the
+    // clones after the real set must cover the full width plus one step.
+    // A few narrow logos on a wide screen need several copies of the set.
+    if (this.opts.marquee) {
+      if (this.opts.perViewSet && this.opts.slidesPerView !== "auto") {
+        this.loopOffset = spv + 1;
+      } else {
+        var copies = this._marqueeCopiesNeeded();
+        this.loopOffset = this.realCount * copies;
+      }
+    }
 
     // Clone tail → prepend
     for (var i = this.realCount - 1, c = 0; c < this.loopOffset; c++, i--) {
@@ -618,6 +657,9 @@ Slider.prototype._updateA11y = function () {
   var spv = Math.floor(this.effectiveSpv || 1);
   for (var i = 0; i < this.items.length; i++) {
     var visible = i >= this.index && i < this.index + spv;
+    // A marquee is always moving, so "visible" can't be tracked per slide:
+    // expose every real card, keep the clones hidden.
+    if (this.opts.marquee) visible = this.items[i].getAttribute("zh-slider-clone") !== "true";
     this.items[i].setAttribute("aria-hidden", visible ? "false" : "true");
     this.items[i].removeAttribute("inert");
   }
@@ -645,6 +687,11 @@ Slider.prototype._bindKeyboard = function () {
   // Don't force tabindex on root — let Webflow control tab order.
   // Keyboard nav works when ANY element inside the slider has focus.
   this.root.addEventListener("keydown", function (e) {
+    if (self.opts.marquee) {
+      if (e.key === "ArrowLeft") { e.preventDefault(); self.prev(); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); self.next(); }
+      return;
+    }
     if (e.key === "ArrowLeft") {
       // In loop mode with keyboard: stop at first slide (no loop trap)
       if (!self.opts.loop || self.realIndex > 0) {
@@ -667,6 +714,20 @@ Slider.prototype._bindKeyboard = function () {
   // This makes Tab key navigate slide-by-slide through the real slides.
   // Cloned slides are already tabindex="-1" so they're skipped.
   this.root.addEventListener("focusin", function (e) {
+    // Marquee: stop moving while keyboard focus is inside (WCAG 2.2.2)
+    // and bring a focused card into view if it's partly off-screen.
+    // Mouse clicks also move focus (e.g. onto an arrow button); those are
+    // ignored, otherwise the marquee would stay frozen after a click.
+    if (self.opts.marquee) {
+      var keyboard = true;
+      try { keyboard = e.target.matches(":focus-visible"); } catch (err) {}
+      if (!keyboard) return;
+      self._marqueeSetPaused("focus", true);
+      var card = e.target.closest("[" + ATTR.item + "]");
+      if (card) self._marqueeReveal(card);
+      return;
+    }
+
     // Find which slide contains the focused element
     var slide = e.target.closest("[" + ATTR.item + "]");
     if (!slide) return;
@@ -696,6 +757,14 @@ Slider.prototype._bindKeyboard = function () {
     // Pause autoplay while slider has focus (WCAG 2.2.2)
     self._stopAutoplay();
   });
+
+  if (this.opts.marquee) {
+    this.root.addEventListener("focusout", function (e) {
+      if (!e.relatedTarget || !self.root.contains(e.relatedTarget)) {
+        self._marqueeSetPaused("focus", false);
+      }
+    });
+  }
 
   if (this.opts.autoplayMs > 0) {
     this.root.addEventListener("focusout", function () {
@@ -768,7 +837,11 @@ Slider.prototype.layout = function (silent) {
     this.effectiveSpv = 1;
   }
 
-  if (!silent) this.goTo(this.realIndex, false);
+  if (this._mq) {
+    this._marqueeMeasure();
+  } else if (!silent) {
+    this.goTo(this.realIndex, false);
+  }
   this._updateScrollbar(false);
   this._updateProgress(false);
 };
@@ -853,6 +926,7 @@ Slider.prototype._realIndexFromDisplayed = function (disp) {
 };
 
 Slider.prototype.goTo = function (realIndex, animate) {
+  if (this._mq) return this._marqueeGoTo(realIndex);
   if (animate == null) animate = true;
   var target;
 
@@ -900,8 +974,14 @@ Slider.prototype._notifySync = function () {
   }
 };
 
-Slider.prototype.next = function () { this.goTo(this.realIndex + 1, true); };
-Slider.prototype.prev = function () { this.goTo(this.realIndex - 1, true); };
+Slider.prototype.next = function () {
+  if (this._mq) return this._marqueeStep(1);
+  this.goTo(this.realIndex + 1, true);
+};
+Slider.prototype.prev = function () {
+  if (this._mq) return this._marqueeStep(-1);
+  this.goTo(this.realIndex - 1, true);
+};
 
 // After a loop wrap, jump instantly back to the equivalent real position.
 Slider.prototype._handleLoopWrap = function () {
@@ -914,6 +994,205 @@ Slider.prototype._handleLoopWrap = function () {
     this.index += this.realCount;
     this._setTranslate(-this.index * this.slideSize, false);
   }
+};
+
+// ── Marquee ──────────────────────────────────────────────────────────────
+// Continuous linear scroll (logo walls and the like). A single rAF loop
+// owns the transform: it moves the list at `marqueeSpeed` px/s, eases the
+// speed down to 0 while paused (hover, keyboard focus, finger down) and
+// back up afterwards, plays the short tween when an arrow is clicked, and
+// wraps around the cloned sets. Positions come from the DOM (each card's
+// offset), not index * slideSize, so cards of different widths work too.
+
+// Copies of the set needed on each side so clones always cover the visible
+// area plus one card. Runs before cloning, so it measures the originals.
+Slider.prototype._marqueeCopiesNeeded = function () {
+  var items = this.originalItems;
+  var widest = 0;
+  for (var i = 0; i < items.length; i++) {
+    items[i].style.flexShrink = "0";
+    widest = Math.max(widest, items[i].getBoundingClientRect().width);
+  }
+  var first = items[0].getBoundingClientRect();
+  var last = items[items.length - 1].getBoundingClientRect();
+  var cs = window.getComputedStyle(this.list);
+  var gap = this.opts.gapSet ? this.opts.spaceBetween : (parseFloat(cs.columnGap || cs.gap) || 0);
+  var setWidth = last.right - first.left + gap;
+  if (setWidth <= 0) return 2;
+  var cover = Math.max(this.root.clientWidth, window.innerWidth) + widest;
+  return Math.max(1, Math.ceil(cover / setWidth));
+};
+
+Slider.prototype._initMarquee = function () {
+  if (!this.opts.marquee || this.loopOffset < 1) return;
+  var self = this;
+  this._mq = {
+    speed: 0,                 // current px/s; eases towards the target
+    paused: { hover: false, focus: false, press: false },
+    tween: null,              // { from, to, start, dur } while an arrow step plays
+    raf: 0,
+    last: 0,
+    inView: true,
+    ease: this._getEasing(this.opts.easing),
+  };
+  this._marqueeMeasure();
+  this._marqueeRender(-this._mq.start);
+
+  if (this.opts.pauseOnHover) {
+    // Mouse only: on touch screens pointerleave may never fire, which
+    // would leave the marquee stuck after a tap.
+    this.root.addEventListener("pointerenter", function (e) {
+      if (e.pointerType === "mouse") self._marqueeSetPaused("hover", true);
+    });
+    this.root.addEventListener("pointerleave", function (e) {
+      if (e.pointerType === "mouse") self._marqueeSetPaused("hover", false);
+    });
+  }
+
+  document.addEventListener("visibilitychange", function () { self._marqueeKick(); });
+
+  // Don't burn frames while the slider is scrolled out of view.
+  if ("IntersectionObserver" in window) {
+    this._mqObserver = new IntersectionObserver(function (entries) {
+      self._mq.inView = entries[0].isIntersecting;
+      self._marqueeKick();
+    });
+    this._mqObserver.observe(this.root);
+  }
+
+  this._marqueeKick();
+};
+
+// Cache each card's offset within the list and the width of one full set.
+Slider.prototype._marqueeMeasure = function () {
+  var mq = this._mq;
+  var origin = this.items[0].getBoundingClientRect().left;
+  mq.offsets = [];
+  for (var i = 0; i < this.items.length; i++) {
+    mq.offsets.push(this.items[i].getBoundingClientRect().left - origin);
+  }
+  mq.start = mq.offsets[this.loopOffset];
+  mq.setWidth = mq.offsets[this.loopOffset + this.realCount] - mq.start;
+  mq.minStep = 0.3 * mq.setWidth / this.realCount;
+  this._marqueeRender(this._marqueeWrap(this.translate));
+};
+
+// Keep the position inside the real set. Moving by exactly one set width
+// shows identical content, so the jump is invisible.
+Slider.prototype._marqueeWrap = function (tx) {
+  var mq = this._mq;
+  if (!(mq.setWidth > 0)) return tx;
+  var p = -tx;
+  while (p >= mq.start + mq.setWidth) p -= mq.setWidth;
+  while (p < mq.start) p += mq.setWidth;
+  return -p;
+};
+
+Slider.prototype._marqueeRender = function (tx) {
+  this.translate = tx;
+  this.list.style.transform = "translate3d(" + tx + "px, 0, 0)";
+};
+
+Slider.prototype._marqueePaused = function () {
+  var p = this._mq.paused;
+  return p.hover || p.focus || p.press;
+};
+
+Slider.prototype._marqueeSetPaused = function (reason, on) {
+  if (!this._mq) return;
+  this._mq.paused[reason] = on;
+  this._marqueeKick();
+};
+
+// (Re)start the loop unless there's nothing to animate.
+Slider.prototype._marqueeKick = function () {
+  var mq = this._mq;
+  if (!mq || mq.raf) return;
+  var target = this._marqueePaused() ? 0 : this.opts.marqueeSpeed;
+  var idle = !mq.tween && (this.isDragging || (mq.speed === 0 && target === 0));
+  if (idle || !mq.inView || document.hidden) { mq.last = 0; return; }
+  var self = this;
+  mq.raf = requestAnimationFrame(function (ts) { self._marqueeTick(ts); });
+};
+
+Slider.prototype._marqueeTick = function (ts) {
+  var mq = this._mq;
+  mq.raf = 0;
+  // Cap the step so a dropped frame or a background tab can't cause a leap.
+  var dt = mq.last ? Math.min(ts - mq.last, 50) / 1000 : 0;
+  mq.last = ts;
+
+  if (mq.tween) {
+    var tw = mq.tween;
+    var t = tw.dur > 0 ? clamp((performance.now() - tw.start) / tw.dur, 0, 1) : 1;
+    this._marqueeRender(tw.from + (tw.to - tw.from) * mq.ease(t));
+    if (t >= 1) {
+      mq.tween = null;
+      mq.speed = 0; // glide back into the scroll instead of lurching
+      this._marqueeRender(this._marqueeWrap(this.translate));
+    }
+  } else if (!this.isDragging) {
+    var target = this._marqueePaused() ? 0 : this.opts.marqueeSpeed;
+    mq.speed += (target - mq.speed) * (1 - Math.exp(-dt / 0.35));
+    if (target === 0 && Math.abs(mq.speed) < 1) mq.speed = 0;
+    if (mq.speed !== 0) {
+      this._marqueeRender(this._marqueeWrap(this.translate - mq.speed * dt));
+    }
+  }
+
+  this._marqueeKick();
+};
+
+Slider.prototype._marqueeTweenTo = function (tx) {
+  this._mq.tween = {
+    from: this.translate,
+    to: tx,
+    start: performance.now(),
+    dur: this.opts.duration,
+  };
+  this._marqueeKick();
+};
+
+// Arrow step: glide to the next/previous card edge from wherever the
+// marquee is right now. Fast clicks chain from where the running step is
+// heading, so they add up instead of restarting half-way.
+Slider.prototype._marqueeStep = function (dir) {
+  var mq = this._mq;
+  var anchor = mq.tween ? mq.tween.to : this.translate;
+  var wrapped = this._marqueeWrap(anchor);
+  this._marqueeRender(this.translate + (wrapped - anchor)); // whole set widths: invisible
+
+  var p = -wrapped, offs = mq.offsets, target = null, i;
+  if (dir > 0) {
+    for (i = 0; i < offs.length; i++) {
+      if (offs[i] > p + mq.minStep) { target = offs[i]; break; }
+    }
+  } else {
+    for (i = offs.length - 1; i >= 0; i--) {
+      if (offs[i] < p - mq.minStep) { target = offs[i]; break; }
+    }
+  }
+  if (target !== null) this._marqueeTweenTo(-target);
+};
+
+// Bullets, sync and the JS API land here: glide to a real card.
+Slider.prototype._marqueeGoTo = function (realIndex) {
+  var mq = this._mq;
+  var r = ((realIndex % this.realCount) + this.realCount) % this.realCount;
+  this._marqueeRender(this._marqueeWrap(this.translate));
+  this.realIndex = r;
+  this.index = this.loopOffset + r;
+  this._marqueeTweenTo(-mq.offsets[this.index]);
+  this._updateState();
+  this._notifySync();
+};
+
+// Bring a keyboard-focused card fully into view.
+Slider.prototype._marqueeReveal = function (card) {
+  var r = card.getBoundingClientRect();
+  var box = this.root.getBoundingClientRect();
+  if (r.left >= box.left && r.right <= box.right) return;
+  this._marqueeTweenTo(this.translate + (box.left - r.left));
 };
 
 // ── State: nav disabled, active bullet/slide, numbers, scrollbar ─────────
@@ -1349,6 +1628,14 @@ Slider.prototype._bindPointer = function () {
     self.dragLastX = e.clientX;
     self.dragLastT = performance.now();
     self.dragVelocity = 0;
+
+    // Marquee: a press holds it still (so a tap lands on the card under
+    // the finger) and grabs it mid-step if an arrow glide is running.
+    if (self._mq) {
+      self._mq.tween = null;
+      self._mq.speed = 0;
+      self._marqueeSetPaused("press", true);
+    }
     self.startTranslate = self.translate;
 
     document.addEventListener("pointermove", onMove);
@@ -1382,6 +1669,14 @@ Slider.prototype._bindPointer = function () {
 
     var next = self.startTranslate + dx;
 
+    // Marquee: free drag, wrapping around the clones so it never runs out.
+    if (self._mq) {
+      var wrapped = self._marqueeWrap(next);
+      self.startTranslate += wrapped - next;
+      self._marqueeRender(wrapped);
+      return;
+    }
+
     if (!self.opts.loop) {
       // Clamp: last slide flush with right edge of container
       var minX = -((self.realCount - 1) * self.slideSize - (self.containerSize - self.slideSize));
@@ -1406,6 +1701,17 @@ Slider.prototype._bindPointer = function () {
     self.isDragging = false;
     self.root.classList.remove("is-dragging");
     tracking = false;
+
+    // Marquee: no snapping. Hand the release speed to the loop, which
+    // eases it back to the normal pace (or to a stop while hovered).
+    if (self._mq) {
+      if (wasDragging) {
+        var v = performance.now() - self.dragLastT > 100 ? 0 : self.dragVelocity;
+        self._mq.speed = clamp(-v * 1000, -3000, 3000);
+      }
+      self._marqueeSetPaused("press", false);
+      return;
+    }
 
     // Tap/click — let the native event chain handle it
     if (!wasDragging) return;
@@ -1448,6 +1754,10 @@ Slider.prototype._bindPointer = function () {
   for (var i = 0; i < imgs.length; i++) {
     imgs[i].setAttribute("draggable", "false");
   }
+
+  // Same for cards that are links: the browser's own link drag would
+  // cancel the pointer stream half-way and leave the slider stuck.
+  this.list.addEventListener("dragstart", function (e) { e.preventDefault(); });
 };
 
 // ── Resize handling ──────────────────────────────────────────────────────
@@ -1559,6 +1869,11 @@ Slider.prototype._restartAutoplay = function () {
 Slider.prototype.destroy = function () {
   this._stopAutoplay();
   if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+  if (this._mq) {
+    if (this._mq.raf) cancelAnimationFrame(this._mq.raf);
+    if (this._mqObserver) this._mqObserver.disconnect();
+    this._mq = null;
+  }
   var clones = this.root.querySelectorAll("[zh-slider-clone='true']");
   for (var i = 0; i < clones.length; i++) clones[i].parentNode.removeChild(clones[i]);
   this.list.style.transform = "";
