@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.4.1`
+**Huidige versie:** `v1.5.0`
 
 ---
 
@@ -12,7 +12,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.4.1/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.5.0/zweihander.min.js"
   zh-auto>
 </script>
 ```
@@ -27,7 +27,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.4.1/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.5.0/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -89,6 +89,7 @@ Alle opties staan als attributen op het root-element (`[zh-slider]`).
 |-----------|------|---------|-------------|
 | `zh-slider` | string | `""` | **Verplicht.** Naam van de slider (gebruikt voor sync, tellers, timeline). Mag leeg zijn. |
 | `zh-slider-loop` | boolean | `false` | Eindeloos loopen (clonet slides aan beide kanten) |
+| `zh-slider-center` | boolean | `false` | De actieve slide staat in het midden in plaats van links. Zie [Gecentreerd](#gecentreerd) |
 | `zh-slider-duration` | number | `500` | Animatieduur in ms |
 | `zh-slider-per-view` | number/`"auto"` | `1` | Aantal zichtbare slides. `"auto"` = laat CSS de breedte bepalen |
 | `zh-slider-gap` | number | `0` | Ruimte tussen slides in px. Als niet gezet, bepaalt je CSS de gap |
@@ -178,6 +179,26 @@ Timeline items buiten de slider (bv. in een sibling component):
   <div zh-slider-timeline-fill></div>
 </div>
 ```
+
+### Gecentreerd
+
+Met `zh-slider-center="true"` staat de actieve slide in het midden van de slider, dus bij het laden ook de eerste.
+
+```html
+<div zh-slider="cases" zh-slider-center="true" zh-slider-per-view="3" zh-slider-gap="16">
+```
+
+| Combinatie | Gedrag |
+|------------|--------|
+| Zonder loop | De eerste slide begint in het midden met lege ruimte links. Bij de laatste slide is er lege ruimte rechts. Slepen voorbij de eerste of laatste slide veert terug |
+| Met loop | Er is nooit lege ruimte. Links en rechts van de actieve slide zie je de buren |
+| Met marquee | Pijltjes zetten een kaart in het midden, en de teller toont de kaart die het dichtst bij het midden staat |
+
+Tips:
+
+- Gebruik een oneven of halve per-view (`3`, `2.5`, `1.5`) voor een mooi symmetrisch beeld.
+- De actieve slide krijgt `is-active`. Daarmee kun je in Webflow de middelste kaart groter of donkerder maken.
+- De progress bar loopt van 0% bij de eerste naar 100% bij de laatste slide.
 
 ### Marquee
 
@@ -459,7 +480,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.4.1   ← specifieke versie (aanbevolen)
+@v1.5.0   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -467,6 +488,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.5.0 | `zh-slider-center`: actieve slide in het midden, voor gewone sliders en de marquee |
 | v1.4.1 | Tellers werken in marquee-modus. Progress bar en scrollbar staan daar bewust uit |
 | v1.4.0 | Marquee-modus (`zh-slider-marquee`). `zh-slider-autoplay` accepteert nu `true`/`false`. Kaarten die links zijn blokkeren het slepen niet meer |
 | v1.3.4 | Fix progress bar: 100% wanneer laatste slide zichtbaar is (multi-per-view) |

@@ -34,6 +34,9 @@
  * pause-on-hover keep working):
  *   <div zh-slider="logos" zh-slider-marquee="40">…</div>
  *
+ * Centered (active slide in the middle, also on load):
+ *   <div zh-slider="cases" zh-slider-center="true">…</div>
+ *
  * Style it however you like in Webflow. The script only sets dynamic
  * transform/transition values inline and toggles a few state classes:
  *   - is-active   on current pagination bullet, slide & timeline item
@@ -185,6 +188,7 @@ function Slider(root) {
   this.translate = 0;        // current px offset
   this.slideSize = 0;        // px per slide (incl. spaceBetween)
   this.containerSize = 0;    // px of viewport
+  this.centerOffset = 0;     // px shift that centers the active slide (center mode)
   this.items = [];           // displayed items (incl. clones if loop)
   this.loopOffset = 0;       // number of cloned slides at the start
   this.isDragging = false;
@@ -237,6 +241,8 @@ Slider.prototype._readOptions = function () {
     marquee: marquee,
     marqueeSpeed: reducedMotion ? 0 : marqueeSpeed,
     loop: marquee || attrBool(r, "zh-slider-loop", false),
+    // Center: the active slide sits in the middle instead of on the left.
+    center: attrBool(r, "zh-slider-center", false),
     duration: reducedMotion ? 0 : attrNumber(r, "zh-slider-duration", 500),
     slidesPerView: this._parseSpv(attr(r, "zh-slider-per-view", "1")),
     perViewSet: r.hasAttribute("zh-slider-per-view"),
@@ -657,6 +663,10 @@ Slider.prototype._updateA11y = function () {
   var spv = Math.floor(this.effectiveSpv || 1);
   for (var i = 0; i < this.items.length; i++) {
     var visible = i >= this.index && i < this.index + spv;
+    if (this.opts.center) {
+      var half = (spv - 1) / 2;
+      visible = i >= this.index - Math.floor(half) && i <= this.index + Math.ceil(half);
+    }
     // A marquee is always moving, so "visible" can't be tracked per slide:
     // expose every real card, keep the clones hidden.
     if (this.opts.marquee) visible = this.items[i].getAttribute("zh-slider-clone") !== "true";
@@ -747,7 +757,7 @@ Slider.prototype._bindKeyboard = function () {
       if (self.opts.loop) {
         self.index = idx;
         self.realIndex = self._realIndexFromDisplayed(idx);
-        self._setTranslate(-self.index * self.slideSize, true);
+        self._setTranslate(self._posFor(self.index), true);
         self._updateState();
       } else {
         self.goTo(idx, true);
@@ -837,6 +847,13 @@ Slider.prototype.layout = function (silent) {
     this.effectiveSpv = 1;
   }
 
+  // 5. Center mode: shift so the active slide's middle meets the container's.
+  this.centerOffset = 0;
+  if (this.opts.center && this.items.length) {
+    var w = this.items[0].getBoundingClientRect().width;
+    this.centerOffset = (this.containerSize - w) / 2;
+  }
+
   if (this._mq) {
     this._marqueeMeasure();
   } else if (!silent) {
@@ -914,6 +931,12 @@ Slider.prototype._getEasing = function (css) {
   }
 };
 
+// Translate that puts displayed slide `idx` in its resting spot: on the
+// left edge, or in the middle when zh-slider-center is on.
+Slider.prototype._posFor = function (idx) {
+  return -idx * this.slideSize + this.centerOffset;
+};
+
 Slider.prototype._displayedIndexFromReal = function (real) {
   return real + this.loopOffset;
 };
@@ -942,8 +965,8 @@ Slider.prototype.goTo = function (realIndex, animate) {
 
   // Calculate translate, but clamp so the last slide sits flush
   // against the right edge — no empty space beyond the last card.
-  var x = -target * this.slideSize;
-  if (!this.opts.loop) {
+  var x = this._posFor(target);
+  if (!this.opts.loop && !this.opts.center) {
     var maxTranslate = -((this.realCount - 1) * this.slideSize - (this.containerSize - this.slideSize));
     // maxTranslate = -(totalContentWidth - containerWidth)
     if (maxTranslate > 0) maxTranslate = 0;
@@ -989,10 +1012,10 @@ Slider.prototype._handleLoopWrap = function () {
   var max = this.loopOffset + this.realCount; // exclusive
   if (this.index >= max) {
     this.index -= this.realCount;
-    this._setTranslate(-this.index * this.slideSize, false);
+    this._setTranslate(this._posFor(this.index), false);
   } else if (this.index < this.loopOffset) {
     this.index += this.realCount;
-    this._setTranslate(-this.index * this.slideSize, false);
+    this._setTranslate(this._posFor(this.index), false);
   }
 };
 
@@ -1036,7 +1059,7 @@ Slider.prototype._initMarquee = function () {
     ease: this._getEasing(this.opts.easing),
   };
   this._marqueeMeasure();
-  this._marqueeRender(-this._mq.start);
+  this._marqueeRender(-this._mq.stops[this.loopOffset]);
 
   if (this.opts.pauseOnHover) {
     // Mouse only: on touch screens pointerleave may never fire, which
@@ -1063,13 +1086,19 @@ Slider.prototype._initMarquee = function () {
   this._marqueeKick();
 };
 
-// Cache each card's offset within the list and the width of one full set.
+// Cache each card's offset within the list, the width of one full set,
+// and each card's resting spot ("stop"): the scroll position where that
+// card sits on the left edge, or in the middle when zh-slider-center is on.
 Slider.prototype._marqueeMeasure = function () {
   var mq = this._mq;
   var origin = this.items[0].getBoundingClientRect().left;
   mq.offsets = [];
+  mq.stops = [];
   for (var i = 0; i < this.items.length; i++) {
-    mq.offsets.push(this.items[i].getBoundingClientRect().left - origin);
+    var rect = this.items[i].getBoundingClientRect();
+    var off = rect.left - origin;
+    mq.offsets.push(off);
+    mq.stops.push(this.opts.center ? off + rect.width / 2 - this.containerSize / 2 : off);
   }
   mq.start = mq.offsets[this.loopOffset];
   mq.setWidth = mq.offsets[this.loopOffset + this.realCount] - mq.start;
@@ -1094,13 +1123,14 @@ Slider.prototype._marqueeRender = function (tx) {
   this._marqueeTrackIndex();
 };
 
-// Counters (and bullets) follow the card nearest the left edge, so they
-// tick along with the scroll, the arrows and dragging. The DOM is only
-// touched when that card changes, not every frame.
+// Counters (and bullets) follow the card nearest its resting spot (left
+// edge, or the middle in center mode), so they tick along with the
+// scroll, the arrows and dragging. The DOM is only touched when that
+// card changes, not every frame.
 Slider.prototype._marqueeTrackIndex = function () {
   var mq = this._mq;
-  if (!mq || !mq.offsets) return;
-  var p = -this.translate, offs = mq.offsets, best = 0;
+  if (!mq || !mq.stops) return;
+  var p = -this.translate, offs = mq.stops, best = 0;
   for (var i = 1; i < offs.length; i++) {
     if (Math.abs(offs[i] - p) < Math.abs(offs[best] - p)) best = i;
     else if (offs[i] > p) break;
@@ -1181,16 +1211,16 @@ Slider.prototype._marqueeTweenTo = function (tx) {
   this._marqueeKick();
 };
 
-// Arrow step: glide to the next/previous card edge from wherever the
-// marquee is right now. Fast clicks chain from where the running step is
-// heading, so they add up instead of restarting half-way.
+// Arrow step: glide the next/previous card to its resting spot from
+// wherever the marquee is right now. Fast clicks chain from where the
+// running step is heading, so they add up instead of restarting half-way.
 Slider.prototype._marqueeStep = function (dir) {
   var mq = this._mq;
   var anchor = mq.tween ? mq.tween.to : this.translate;
   var wrapped = this._marqueeWrap(anchor);
   this._marqueeRender(this.translate + (wrapped - anchor)); // whole set widths: invisible
 
-  var p = -wrapped, offs = mq.offsets, target = null, i;
+  var p = -wrapped, offs = mq.stops, target = null, i;
   if (dir > 0) {
     for (i = 0; i < offs.length; i++) {
       if (offs[i] > p + mq.minStep) { target = offs[i]; break; }
@@ -1208,7 +1238,7 @@ Slider.prototype._marqueeGoTo = function (realIndex) {
   var mq = this._mq;
   var r = ((realIndex % this.realCount) + this.realCount) % this.realCount;
   this._marqueeRender(this._marqueeWrap(this.translate));
-  this._marqueeTweenTo(-mq.offsets[this.loopOffset + r]);
+  this._marqueeTweenTo(-mq.stops[this.loopOffset + r]);
   // Counters catch up on their own as the glide passes each card; sync
   // partners get the destination straight away.
   this.realIndex = r;
@@ -1261,6 +1291,7 @@ Slider.prototype._travelDist = function () {
   if (this.opts.loop) {
     return Math.max(1, this.realCount - 1) * this.slideSize;
   }
+  if (this.opts.center) return Math.max(0, this.realCount - 1) * this.slideSize;
   var dist = (this.realCount - 1) * this.slideSize - (this.containerSize - this.slideSize);
   // When all slides fit in view there's nothing to scroll → avoid div-by-0.
   return dist > 0 ? dist : 0;
@@ -1289,7 +1320,7 @@ Slider.prototype._updateProgress = function (animate) {
   // clamping as goTo() so progress reaches 100% the moment the last
   // slide sits flush against the right edge of the container.
   var x = -this.index * this.slideSize;
-  if (!this.opts.loop) {
+  if (!this.opts.loop && !this.opts.center) {
     x = Math.max(x, -travel);
   }
   var scrolled = this.opts.loop
@@ -1310,7 +1341,7 @@ Slider.prototype._updateProgressFromTranslate = function (tx) {
   var totalTravel = this._travelDist();
   if (totalTravel <= 0) { this.progressFillEl.style.width = "100%"; return; }
 
-  var adjusted = -(tx + this.loopOffset * this.slideSize);
+  var adjusted = -(tx - this.centerOffset + this.loopOffset * this.slideSize);
   var pct = clamp(adjusted / totalTravel, 0, 1) * 100;
 
   this.progressFillEl.style.transition = "none";
@@ -1439,7 +1470,7 @@ Slider.prototype._updateScrollbarFromTranslate = function (tx) {
   if (totalTravel <= 0) return;
 
   // In loop mode, adjust for the clone offset
-  var adjusted = -(tx + this.loopOffset * this.slideSize);
+  var adjusted = -(tx - this.centerOffset + this.loopOffset * this.slideSize);
   var progress = clamp(adjusted / totalTravel, 0, 1);
 
   this.scrollbarThumbEl.style.transition = "none";
@@ -1498,7 +1529,7 @@ Slider.prototype._bindScrollbarDrag = function () {
     // the thumb hits the end of its track.
     var travelSlides = self.slideSize > 0 ? self._travelDist() / self.slideSize : 0;
     var continuousSlide = progress * travelSlides;
-    var translateX = -(continuousSlide + self.loopOffset) * self.slideSize;
+    var translateX = -(continuousSlide + self.loopOffset) * self.slideSize + self.centerOffset;
     self.list.style.transition = "none";
     self.list.style.transform = "translate3d(" + translateX + "px, 0, 0)";
     self.translate = translateX;
@@ -1708,10 +1739,14 @@ Slider.prototype._bindPointer = function () {
     }
 
     if (!self.opts.loop) {
-      // Clamp: last slide flush with right edge of container
-      var minX = -((self.realCount - 1) * self.slideSize - (self.containerSize - self.slideSize));
-      if (minX > 0) minX = 0;
-      if (next > 0) next = next * 0.35;
+      // Clamp: last slide flush with right edge of container, or, when
+      // centered, first and last slide in the middle.
+      var maxX = self.opts.center ? self.centerOffset : 0;
+      var minX = self.opts.center
+        ? self._posFor(self.realCount - 1)
+        : -((self.realCount - 1) * self.slideSize - (self.containerSize - self.slideSize));
+      if (minX > maxX) minX = maxX;
+      if (next > maxX) next = maxX + (next - maxX) * 0.35;
       else if (next < minX) next = minX + (next - minX) * 0.35;
     }
 
@@ -1767,7 +1802,7 @@ Slider.prototype._bindPointer = function () {
     if (self.opts.loop) {
       self.index = targetDisplayed;
       self.realIndex = self._realIndexFromDisplayed(targetDisplayed);
-      self._setTranslate(-self.index * self.slideSize, true);
+      self._setTranslate(self._posFor(self.index), true);
       self._updateState();
     } else {
       self.goTo(targetDisplayed, true);
