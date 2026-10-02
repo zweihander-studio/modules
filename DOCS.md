@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.6.0`
+**Huidige versie:** `v1.6.1`
 
 ---
 
@@ -12,7 +12,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.0/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.1/zweihander.min.js"
   zh-auto>
 </script>
 ```
@@ -27,7 +27,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.0/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.1/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -98,13 +98,23 @@ Alle opties staan als attributen op het root-element (`[zh-slider]`).
 | `zh-slider-drag` | boolean | `true` | Touch/mouse drag aan/uit |
 | `zh-slider-auto-hide` | boolean | `true` | Verbergt de navigatie en zet de slider stil als er niets te sliden valt. Zie [Weinig of geen slides](#weinig-of-geen-slides) |
 | `zh-slider-drag-threshold` | number | `5` | Minimale px voordat drag start (voorkomt accidentele drags) |
-| `zh-slider-easing` | string | `"cubic-bezier(.22,.61,.36,1)"` | CSS easing voor de slide-animatie |
+| `zh-slider-easing` | string | `"cubic-bezier(.22,.61,.36,1)"` | CSS easing voor de slide-animatie: `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out` of een eigen `cubic-bezier(...)`. Kies bij voorkeur een ease-out, dan loopt een swipe vloeiend door na het loslaten |
 | `zh-slider-pad-numbers` | boolean | `true` | Tellers met voorloop-nul (`01` ipv `1`) |
 | `zh-slider-pause-on-hover` | boolean | `false` (marquee: `true`) | Autoplay of marquee pauzeert bij hover met de muis |
 | `zh-slider-sync` | string | `null` | Naam van een andere slider om mee te syncen |
 | `zh-slider-skiplink` | boolean | `false` | Voeg een skip-link toe voor toetsenbord-gebruikers (WCAG) |
 | `zh-slider-pagination-clickable` | boolean | `true` | Klikbare pagination bullets |
 | `zh-slider-breakpoints` | JSON | `null` | Responsive overrides (zie onder) |
+
+### Swipen op touch
+
+Zo voelt swipen op mobiel vloeiend:
+
+- De slide volgt je duim 1-op-1. De 5 px drempel (`zh-slider-drag-threshold`) zorgt alleen dat een tik geen sleep wordt, er is geen sprong.
+- Begint je beweging vooral verticaal, dan scrolt de pagina en blijft de slider staan.
+- Swipe je opnieuw terwijl de vorige slide nog glijdt, dan pak je hem direct vast waar hij is.
+- Bij loslaten glijdt de slide door met de snelheid van je duim. Hou je je duim eerst stil, dan landt hij gewoon op de dichtstbijzijnde slide.
+- In een loop raakt de slider nooit op, hoe ver je ook sleept.
 
 ### Breakpoints
 
@@ -308,7 +318,8 @@ Zweihander.slider.initOne(document.querySelector('[zh-slider="new"]'));
 
 Het script forceert **zo min mogelijk** inline styles. Style alles in Webflow:
 
-- **Overflow, cursor, touch-action** — stel je zelf in via Webflow
+- **Overflow en cursor** stel je zelf in via Webflow
+- **touch-action**: laat dit in Webflow op auto staan. Het script zet dan zelf `pan-y pinch-zoom` op de list-wrapper, zodat verticaal scrollen en inzoomen bij de browser blijven en horizontaal swipen bij de slider. Zet je zelf iets, dan blijft jouw waarde staan
 - **Gap** — alleen als je `zh-slider-gap` gebruikt, anders pakt het script je CSS gap
 - **Slide breedte** — alleen als je `zh-slider-per-view` gebruikt, anders bepaalt je CSS de breedte
 - **Scrollbar/progress** — style de wrapper + thumb volledig zelf, het script zet alleen `width` en `transform`
@@ -507,7 +518,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.6.0   ← specifieke versie (aanbevolen)
+@v1.6.1   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -515,6 +526,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.6.1 | Vloeiender swipen: `touch-action` wordt automatisch gezet, een glijdende slide kun je direct vastpakken, geen sprong bij de drempel, snelheid gemeten over de laatste 100 ms, en `zh-slider-easing` met `cubic-bezier()` wordt nu echt gebruikt (viel eerder terug op ease-in-out) |
 | v1.6.0 | Navigatie verbergt zich bij een lege slider of als alles past (`is-empty`, `is-static`, `zh-slider-auto-hide`, `zh-slider-element="controls"`). `zh-auto` wacht nu tot de pagina geladen is, zodat sliders verderop niet worden overgeslagen als het script in de head staat |
 | v1.5.0 | `zh-slider-center`: actieve slide in het midden, voor gewone sliders en de marquee |
 | v1.4.1 | Tellers werken in marquee-modus. Progress bar en scrollbar staan daar bewust uit |

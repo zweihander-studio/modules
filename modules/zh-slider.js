@@ -959,7 +959,9 @@ Slider.prototype._setStatic = function (on) {
 };
 
 // ── Movement ──────────────────────────────────────────────────────────────
-Slider.prototype._setTranslate = function (px, animate) {
+// flickVelocity (px/ms, optional): after a swipe, shorten the glide so it
+// starts at the speed the finger let go with instead of braking first.
+Slider.prototype._setTranslate = function (px, animate, flickVelocity) {
   var self = this;
   if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
 
@@ -980,11 +982,17 @@ Slider.prototype._setTranslate = function (px, animate) {
   var start = null;
   this.list.style.transition = "none";
 
-  // Easing: parse common CSS easing names to JS functions
   var ease = this._getEasing(this.opts.easing);
 
+  if (flickVelocity && Math.abs(flickVelocity) > 0.05 && dist !== 0) {
+    var startSlope = ease(0.02) / 0.02; // how fast the curve leaves 0
+    duration = clamp(Math.abs(dist) * startSlope / Math.abs(flickVelocity), 180, duration);
+  }
+
   function step(ts) {
-    if (!start) start = ts;
+    // Count the first frame as already elapsed, so the glide moves right
+    // away instead of holding still for one frame after a release.
+    if (!start) start = ts - 1000 / 60;
     var elapsed = ts - start;
     var t = Math.min(elapsed / duration, 1);
     var val = from + dist * ease(t);
@@ -1004,26 +1012,57 @@ Slider.prototype._setTranslate = function (px, animate) {
   this._rafId = requestAnimationFrame(step);
 };
 
-// Convert CSS easing keyword to a JS easing function
-Slider.prototype._getEasing = function (css) {
-  switch (css) {
-    case "linear":
-      return function (t) { return t; };
-    case "ease-in":
-      return function (t) { return t * t; };
-    case "ease-out":
-      return function (t) { return t * (2 - t); };
-    case "ease-in-out":
-      return function (t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; };
-    case "ease":
-    default:
-      // Approximation of CSS ease (cubic-bezier(0.25, 0.1, 0.25, 1))
-      return function (t) {
-        return t < 0.5
-          ? 4 * t * t * t
-          : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      };
+// CSS cubic-bezier() as a JS function of progress t (0..1), solved the
+// way browsers do it (Newton steps, bisection as a fallback).
+function cubicBezier(x1, y1, x2, y2) {
+  var cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  var cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  function curveX(t) { return ((ax * t + bx) * t + cx) * t; }
+  function curveY(t) { return ((ay * t + by) * t + cy) * t; }
+  function slopeX(t) { return (3 * ax * t + 2 * bx) * t + cx; }
+  function solveT(x) {
+    var t = x, i;
+    for (i = 0; i < 8; i++) {
+      var err = curveX(t) - x;
+      if (Math.abs(err) < 1e-6) return t;
+      var d = slopeX(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= err / d;
+    }
+    var lo = 0, hi = 1;
+    t = x;
+    for (i = 0; i < 30; i++) {
+      var v = curveX(t);
+      if (Math.abs(v - x) < 1e-6) break;
+      if (x > v) lo = t; else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return t;
   }
+  return function (t) { return t <= 0 ? 0 : t >= 1 ? 1 : curveY(solveT(t)); };
+}
+
+var NAMED_EASINGS = {
+  "ease": [0.25, 0.1, 0.25, 1],
+  "ease-in": [0.42, 0, 1, 1],
+  "ease-out": [0, 0, 0.58, 1],
+  "ease-in-out": [0.42, 0, 0.58, 1],
+};
+
+// Turn the zh-slider-easing value into a JS function. Accepts the CSS
+// keywords and cubic-bezier(); anything else falls back to the default
+// ease-out, so a release never starts slower than the finger was moving.
+Slider.prototype._getEasing = function (css) {
+  var v = String(css || "").trim().toLowerCase();
+  if (v === "linear") return function (t) { return t; };
+  var pts = NAMED_EASINGS[v];
+  var m = v.match(/^cubic-bezier\(([^)]+)\)$/);
+  if (m) {
+    var n = m[1].split(",").map(parseFloat);
+    if (n.length === 4 && !n.some(isNaN)) pts = n;
+  }
+  if (!pts) pts = [0.22, 0.61, 0.36, 1];
+  return cubicBezier(pts[0], pts[1], pts[2], pts[3]);
 };
 
 // Translate that puts displayed slide `idx` in its resting spot: on the
@@ -1043,7 +1082,7 @@ Slider.prototype._realIndexFromDisplayed = function (disp) {
   return r;
 };
 
-Slider.prototype.goTo = function (realIndex, animate) {
+Slider.prototype.goTo = function (realIndex, animate, flickVelocity) {
   if (this.isStatic) return;
   if (this._mq) return this._marqueeGoTo(realIndex);
   if (animate == null) animate = true;
@@ -1069,7 +1108,7 @@ Slider.prototype.goTo = function (realIndex, animate) {
     x = Math.max(x, maxTranslate);
   }
 
-  this._setTranslate(x, animate);
+  this._setTranslate(x, animate, flickVelocity);
   this._updateState();
   this._notifySync();
 };
@@ -1100,6 +1139,20 @@ Slider.prototype.next = function () {
 Slider.prototype.prev = function () {
   if (this._mq) return this._marqueeStep(-1);
   this.goTo(this.realIndex - 1, true);
+};
+
+// Loop: if the position sits in the clones, move to the identical spot in
+// the real set. Same content on screen, so nothing visibly changes; it
+// just guarantees clones on both sides for the next drag.
+Slider.prototype._normalizeLoopIndex = function () {
+  if (!this.opts.loop || this._mq || !this.slideSize) return;
+  var shift = 0;
+  if (this.index >= this.loopOffset + this.realCount) shift = -this.realCount;
+  else if (this.index < this.loopOffset) shift = this.realCount;
+  if (!shift) return;
+  this.index += shift;
+  this.translate -= shift * this.slideSize;
+  this.list.style.transform = "translate3d(" + this.translate + "px, 0, 0)";
 };
 
 // After a loop wrap, jump instantly back to the equivalent real position.
@@ -1763,6 +1816,18 @@ Slider.prototype._bindPointer = function () {
   var wrapper = this.list.parentElement || this.list;
   var allowClick = true;
   var tracking = false;
+  var startY = 0;
+  var samples = [];          // recent { x, t } for a steady release speed
+  var interrupted = false;   // this press stopped a glide half-way
+
+  // Touch: let the browser handle vertical scrolling and pinch-zoom, and
+  // leave horizontal swipes to the slider. Without this the browser and
+  // the slider fight over the same thumb, and a slightly diagonal swipe
+  // gets taken over by page scrolling half-way. Only set when the designer
+  // hasn't chosen a touch-action in Webflow.
+  if (window.getComputedStyle(wrapper).touchAction === "auto") {
+    wrapper.style.touchAction = "pan-y pinch-zoom";
+  }
 
   // ── Click gate (capture phase) ────────────────────────────────────
   // Registered once — stays active. Only blocks clicks after a real drag.
@@ -1775,16 +1840,29 @@ Slider.prototype._bindPointer = function () {
     }
   }, true);
 
+  // Release speed in px/ms over the last ~100ms of movement. A single
+  // event pair is too noisy on touch screens, and if the finger stopped
+  // before letting go, there's no fling at all.
+  function releaseVelocity() {
+    var now = performance.now();
+    while (samples.length > 2 && now - samples[0].t > 100) samples.shift();
+    if (samples.length < 2) return 0;
+    var a = samples[0], b = samples[samples.length - 1];
+    if (now - b.t > 80 || b.t === a.t) return 0;
+    return (b.x - a.x) / (b.t - a.t);
+  }
+
   function onDown(e) {
     if (e.button != null && e.button !== 0) return;
     if (self.isStatic) return;
     tracking = true;
     allowClick = true;
+    self._pointerDown = true;
     self.isDragging = false;
     self.dragMoved = false;
     self.dragStart = e.clientX;
-    self.dragLastX = e.clientX;
-    self.dragLastT = performance.now();
+    startY = e.clientY;
+    samples = [{ x: e.clientX, t: performance.now() }];
     self.dragVelocity = 0;
 
     // Marquee: a press holds it still (so a tap lands on the card under
@@ -1793,6 +1871,14 @@ Slider.prototype._bindPointer = function () {
       self._mq.tween = null;
       self._mq.speed = 0;
       self._marqueeSetPaused("press", true);
+    } else {
+      // Grab a slide that's still gliding from the previous swipe:
+      // stop that animation right where it is, otherwise it keeps
+      // writing positions underneath the finger (the classic stutter
+      // when swiping twice quickly).
+      interrupted = !!self._rafId;
+      if (self._rafId) { cancelAnimationFrame(self._rafId); self._rafId = null; }
+      self._normalizeLoopIndex();
     }
     self.startTranslate = self.translate;
 
@@ -1807,23 +1893,29 @@ Slider.prototype._bindPointer = function () {
 
     // ── Before threshold ────────────────────────────────────────────
     if (!self.isDragging) {
+      var dy = e.clientY - startY;
+      // Mostly vertical: the user is scrolling the page, not swiping.
+      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) >= self.opts.threshold) {
+        tracking = false;
+        return;
+      }
       if (Math.abs(dx) < self.opts.threshold) return;
 
-      // Threshold exceeded → enter drag mode
+      // Threshold exceeded → enter drag mode. Measure from here on, so
+      // the slide doesn't jump by the threshold distance.
       self.isDragging = true;
       self.dragMoved = true;
       allowClick = false; // ← this is the key: block the upcoming click
+      self.dragStart = e.clientX;
+      dx = 0;
       self.list.style.transition = "none";
       self.root.classList.add("is-dragging");
       self._stopAutoplay();
     }
 
     // ── Active drag ─────────────────────────────────────────────────
-    var now = performance.now();
-    var dt = now - self.dragLastT;
-    if (dt > 0) self.dragVelocity = (e.clientX - self.dragLastX) / dt;
-    self.dragLastX = e.clientX;
-    self.dragLastT = now;
+    samples.push({ x: e.clientX, t: performance.now() });
+    if (samples.length > 20) samples.shift();
 
     var next = self.startTranslate + dx;
 
@@ -1835,7 +1927,20 @@ Slider.prototype._bindPointer = function () {
       return;
     }
 
-    if (!self.opts.loop) {
+    if (self.opts.loop && self.slideSize > 0) {
+      // Long drags: hop to the identical spot one set further so the
+      // clones never run out under the finger.
+      var setPx = self.realCount * self.slideSize;
+      var pos = -(next - self.centerOffset) / self.slideSize;
+      var hop = 0;
+      if (pos < self.loopOffset - 0.5) hop = self.realCount;
+      else if (pos > self.loopOffset + self.realCount - 0.5) hop = -self.realCount;
+      if (hop) {
+        next -= hop * self.slideSize;
+        self.startTranslate -= hop * self.slideSize;
+        self.index += hop;
+      }
+    } else if (!self.opts.loop) {
       // Clamp: last slide flush with right edge of container, or, when
       // centered, first and last slide in the middle.
       var maxX = self.opts.center ? self.centerOffset : 0;
@@ -1860,32 +1965,43 @@ Slider.prototype._bindPointer = function () {
     document.removeEventListener("pointercancel", onUp);
 
     var wasDragging = self.isDragging;
+    // pointercancel = the browser took over (e.g. started scrolling);
+    // settle on the nearest slide without flinging.
+    var cancelled = e.type === "pointercancel";
+    var velocity = cancelled ? 0 : releaseVelocity();
+    self.dragVelocity = velocity;
     self.isDragging = false;
+    self._pointerDown = false;
     self.root.classList.remove("is-dragging");
     tracking = false;
 
     // Marquee: no snapping. Hand the release speed to the loop, which
     // eases it back to the normal pace (or to a stop while hovered).
     if (self._mq) {
-      if (wasDragging) {
-        var v = performance.now() - self.dragLastT > 100 ? 0 : self.dragVelocity;
-        self._mq.speed = clamp(-v * 1000, -3000, 3000);
-      }
+      if (wasDragging) self._mq.speed = clamp(-velocity * 1000, -3000, 3000);
       self._marqueeSetPaused("press", false);
       return;
     }
 
-    // Tap/click — let the native event chain handle it
-    if (!wasDragging) return;
+    // Tap/click — let the native event chain handle it. If the tap
+    // grabbed a slide mid-glide, finish that glide.
+    if (!wasDragging) {
+      if (interrupted) {
+        if (self.opts.loop) self._setTranslate(self._posFor(self.index), true);
+        else self.goTo(self.realIndex, true);
+      }
+      return;
+    }
 
     // ── Drag release: snap to nearest slide ─────────────────────────
     var moved = self.translate - self.startTranslate;
-    var velocityPxMs = self.dragVelocity;
-    var projected = moved + velocityPxMs * 120;
+    var projected = moved + velocity * 120;
     var stepDelta = -projected / self.slideSize;
 
     var direction;
-    if (Math.abs(stepDelta) < 0.15 && Math.abs(velocityPxMs) < 0.2) {
+    if (cancelled) {
+      direction = Math.round(-moved / self.slideSize);
+    } else if (Math.abs(stepDelta) < 0.15 && Math.abs(velocity) < 0.2) {
       direction = 0;
     } else {
       direction = stepDelta > 0 ? Math.ceil(stepDelta) : Math.floor(stepDelta);
@@ -1899,10 +2015,10 @@ Slider.prototype._bindPointer = function () {
     if (self.opts.loop) {
       self.index = targetDisplayed;
       self.realIndex = self._realIndexFromDisplayed(targetDisplayed);
-      self._setTranslate(self._posFor(self.index), true);
+      self._setTranslate(self._posFor(self.index), true, velocity);
       self._updateState();
     } else {
-      self.goTo(targetDisplayed, true);
+      self.goTo(targetDisplayed, true, velocity);
     }
 
     self._restartAutoplay();
@@ -2001,6 +2117,7 @@ Slider.prototype._startAutoplay = function () {
   } else {
     // Classic mode — setInterval
     this.autoplayTimer = setInterval(function () {
+      if (self._pointerDown) return; // never move a slide out from under a finger
       if (!self.opts.loop) {
         if (self.realIndex >= self.realCount - 1) {
           self.goTo(0, true);
