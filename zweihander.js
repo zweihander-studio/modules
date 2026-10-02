@@ -64,15 +64,22 @@ for (const name of MODULES) {
   }
 }
 
-// If no specific modules requested, check for an auto-detect mode:
-// <script ... zh-auto> scans the DOM for any zh-* elements in use.
-if (!requested.length && loaderScript && loaderScript.hasAttribute("zh-auto")) {
-  for (const name of MODULES) {
-    if (document.querySelector(`[zh-${name}]`)) {
-      requested.push(name);
-    }
-  }
-}
-
 // Load all requested modules in parallel.
 Promise.all(requested.map(loadModule));
+
+// If no specific modules requested, check for an auto-detect mode:
+// <script ... zh-auto> scans the DOM for any zh-* elements in use.
+// An async script in <head> can run while the page is still being parsed,
+// so wait for the full DOM; otherwise sections further down (e.g. sliders
+// below the fold) aren't there yet and their module is silently skipped.
+if (!requested.length && loaderScript && loaderScript.hasAttribute("zh-auto")) {
+  const autoDetect = () => {
+    const found = MODULES.filter((name) => document.querySelector(`[zh-${name}]`));
+    Promise.all(found.map(loadModule));
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", autoDetect);
+  } else {
+    autoDetect();
+  }
+}

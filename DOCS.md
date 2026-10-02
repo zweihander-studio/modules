@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.5.0`
+**Huidige versie:** `v1.6.0`
 
 ---
 
@@ -12,7 +12,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.5.0/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.0/zweihander.min.js"
   zh-auto>
 </script>
 ```
@@ -27,7 +27,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.5.0/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.0/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -96,6 +96,7 @@ Alle opties staan als attributen op het root-element (`[zh-slider]`).
 | `zh-slider-autoplay` | `true`/`false`/number | uit | `true` = aan met 4000 ms, `false` of `0` = uit, een getal = eigen interval in ms |
 | `zh-slider-marquee` | `true`/`false`/number | uit | Doorlopende marquee. `true` = 50 px per seconde, een getal = eigen snelheid in px per seconde. Zie [Marquee](#marquee) |
 | `zh-slider-drag` | boolean | `true` | Touch/mouse drag aan/uit |
+| `zh-slider-auto-hide` | boolean | `true` | Verbergt de navigatie en zet de slider stil als er niets te sliden valt. Zie [Weinig of geen slides](#weinig-of-geen-slides) |
 | `zh-slider-drag-threshold` | number | `5` | Minimale px voordat drag start (voorkomt accidentele drags) |
 | `zh-slider-easing` | string | `"cubic-bezier(.22,.61,.36,1)"` | CSS easing voor de slide-animatie |
 | `zh-slider-pad-numbers` | boolean | `true` | Tellers met voorloop-nul (`01` ipv `1`) |
@@ -126,6 +127,7 @@ Plaats deze binnen de slider-root. Ze worden automatisch gekoppeld.
 |-----------|-------------|
 | `zh-slider-element="prev"` | Vorige-slide knop |
 | `zh-slider-element="next"` | Volgende-slide knop |
+| `zh-slider-element="controls"` | Optionele wrapper rond je navigatie. Wordt in z'n geheel verborgen als er niets te sliden valt |
 | `zh-slider-element="pagination"` | Container — wordt automatisch gevuld met `.zh-bullet` knoppen |
 | `zh-slider-element="scrollbar"` | Scrollbar track (sleepbaar) |
 | `zh-slider-element="scrollbar-thumb"` | Scrollbar thumb (optioneel, wordt auto-aangemaakt) |
@@ -179,6 +181,29 @@ Timeline items buiten de slider (bv. in een sibling component):
   <div zh-slider-timeline-fill></div>
 </div>
 ```
+
+### Weinig of geen slides
+
+Een CMS-lijst kan leeg zijn, of maar twee of drie items hebben die allemaal al in beeld passen. Dan doet de slider vanzelf het volgende:
+
+| Situatie | Wat er gebeurt |
+|----------|----------------|
+| Geen items | Root krijgt `is-empty`. Pijltjes, tellers, pagination, progress en scrollbar worden verborgen |
+| Alle slides passen in beeld | Root krijgt `is-static`. Navigatie verborgen, geen slepen of autoplay, loop-kopieën verborgen, slides staan links (of gecentreerd met `zh-slider-center`) |
+| Slides passen niet (meer) | Alles werkt zoals altijd |
+
+Dit wordt bij elke resize opnieuw gemeten. Passen twee kaarten op desktop wel en op tablet niet, dan schakelt de slider vanzelf mee.
+
+Zo verberg je de navigatie het netst:
+
+- Zet `zh-slider-element="controls"` op de wrapper rond je navigatie (bijvoorbeeld de rij met "01 / 05 ← →"). Dan verdwijnt de hele rij in één keer.
+- Zonder die wrapper verbergt het script elk onderdeel apart. Een tekstregel als `<p>01 / 05</p>` waarin alleen de twee nummers staan, wordt als geheel verborgen, dus de "/" verdwijnt ook.
+- Wil je dit gedrag niet, zet dan `zh-slider-auto-hide="false"`.
+- Een marquee blijft altijd bewegen, ook als alle logo's passen.
+
+#### Slides per view via CSS (aanbevolen voor responsive)
+
+Laat `zh-slider-per-view` weg en geef de slides in Webflow per breakpoint een breedte, bijvoorbeeld 33% op desktop, 50% op tablet en 85% op mobiel. Het script meet de echte breedtes bij het laden en bij elke resize. Daarom kloppen pijltjes, slepen, tellers, progress en het verbergen van de navigatie op elk breakpoint. `zh-slider-per-view="auto"` doet hetzelfde als het attribuut weglaten.
 
 ### Gecentreerd
 
@@ -258,6 +283,8 @@ Sync is bidirectioneel — als `gallery` verandert, volgt `thumbs` en vice versa
 | `is-past` | Timeline items | Voorbije slides |
 | `is-disabled` | Prev/next knoppen | Aan de rand (niet bij loop) |
 | `is-dragging` | Slider root | Tijdens touch/mouse drag |
+| `is-static` | Slider root | Alle slides passen in beeld, navigatie verborgen |
+| `is-empty` | Slider root | Geen slides (lege CMS-lijst) |
 | `is-animated` | *(niet door slider)* | — |
 
 ### JS API
@@ -480,7 +507,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.5.0   ← specifieke versie (aanbevolen)
+@v1.6.0   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -488,6 +515,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.6.0 | Navigatie verbergt zich bij een lege slider of als alles past (`is-empty`, `is-static`, `zh-slider-auto-hide`, `zh-slider-element="controls"`). `zh-auto` wacht nu tot de pagina geladen is, zodat sliders verderop niet worden overgeslagen als het script in de head staat |
 | v1.5.0 | `zh-slider-center`: actieve slide in het midden, voor gewone sliders en de marquee |
 | v1.4.1 | Tellers werken in marquee-modus. Progress bar en scrollbar staan daar bewust uit |
 | v1.4.0 | Marquee-modus (`zh-slider-marquee`). `zh-slider-autoplay` accepteert nu `true`/`false`. Kaarten die links zijn blokkeren het slepen niet meer |

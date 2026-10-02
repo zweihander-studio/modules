@@ -43,6 +43,8 @@
  *   - is-past     on timeline items before the current slide
  *   - is-disabled on nav buttons at the bounds (when not looping)
  *   - is-dragging on the root while user is interacting
+ *   - is-static   on the root when every slide fits (navigation hidden)
+ *   - is-empty    on the root when there are no slides (navigation hidden)
  */
 
 // ES module — loaded by zweihander.js loader
@@ -160,6 +162,44 @@ function scopedQuery(root, selector) {
   return out;
 }
 
+// Navigation that only makes sense when there's something to slide to.
+// [zh-slider-element="controls"] is an optional wrapper (e.g. around
+// "01 / 05 ← →") so the whole group, separators included, hides at once.
+var CONTROL_SELECTOR = ["controls", "prev", "next", "pagination", "progress", "scrollbar"]
+  .map(function (n) { return "[" + ATTR.element + "='" + n + "']"; })
+  .concat(["[" + ATTR.numberCurrent + "]", "[" + ATTR.numberTotal + "]"])
+  .join(", ");
+
+// Hide/show with display:none, restoring whatever inline display was there.
+function setHidden(el, hidden) {
+  if (hidden) {
+    if (el.__zhDisplay === undefined) el.__zhDisplay = el.style.display;
+    el.style.display = "none";
+  } else if (el.__zhDisplay !== undefined) {
+    el.style.display = el.__zhDisplay;
+    delete el.__zhDisplay;
+  }
+}
+
+// Counters usually sit in one text element like <p>01 / 05</p>. Hiding
+// just the numbers would leave the "/" behind, so when a counter's parent
+// holds nothing but counters (and text), hide that parent instead.
+function controlTarget(el) {
+  if (!el.hasAttribute(ATTR.numberCurrent) && !el.hasAttribute(ATTR.numberTotal)) return el;
+  var parent = el.parentElement;
+  if (!parent || parent.hasAttribute(ATTR.root)) return el;
+  var kids = parent.children;
+  for (var i = 0; i < kids.length; i++) {
+    if (!kids[i].hasAttribute(ATTR.numberCurrent) && !kids[i].hasAttribute(ATTR.numberTotal)) return el;
+  }
+  return parent;
+}
+
+function setControlsHidden(root, hidden) {
+  var els = scopedQuery(root, CONTROL_SELECTOR);
+  for (var i = 0; i < els.length; i++) setHidden(controlTarget(els[i]), hidden);
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Slider class (one instance per zh-slider element)
 // ───────────────────────────────────────────────────────────────────────────
@@ -174,7 +214,10 @@ function Slider(root) {
   }
   this.originalItems = scopedQuery(root, "[" + ATTR.item + "]");
   if (!this.originalItems.length) {
-    console.warn("[zh-slider] no [zh-slider-item] elements inside", root);
+    // An empty CMS list is normal: hide the navigation rather than
+    // leaving "01 / 00" and dead arrows on the page.
+    root.classList.add("is-empty");
+    if (attrBool(root, "zh-slider-auto-hide", true)) setControlsHidden(root, true);
     return;
   }
 
@@ -191,6 +234,7 @@ function Slider(root) {
   this.centerOffset = 0;     // px shift that centers the active slide (center mode)
   this.items = [];           // displayed items (incl. clones if loop)
   this.loopOffset = 0;       // number of cloned slides at the start
+  this.isStatic = false;     // every slide fits: nothing to navigate
   this.isDragging = false;
   this.dragStart = 0;
   this.dragLastX = 0;
@@ -254,6 +298,8 @@ Slider.prototype._readOptions = function () {
     // A marquee pauses on hover by default so people can click a card.
     pauseOnHover: attrBool(r, "zh-slider-pause-on-hover", marquee),
     drag: attrBool(r, "zh-slider-drag", true),
+    // Hide navigation and stand still when every slide already fits.
+    autoHide: attrBool(r, "zh-slider-auto-hide", true),
     threshold: attrNumber(r, "zh-slider-drag-threshold", 5),
     easing: attr(r, "zh-slider-easing", "cubic-bezier(.22,.61,.36,1)"),
     padNumbers: attrBool(r, "zh-slider-pad-numbers", true),
@@ -697,6 +743,7 @@ Slider.prototype._bindKeyboard = function () {
   // Don't force tabindex on root — let Webflow control tab order.
   // Keyboard nav works when ANY element inside the slider has focus.
   this.root.addEventListener("keydown", function (e) {
+    if (self.isStatic) return;
     if (self.opts.marquee) {
       if (e.key === "ArrowLeft") { e.preventDefault(); self.prev(); }
       else if (e.key === "ArrowRight") { e.preventDefault(); self.next(); }
@@ -724,6 +771,7 @@ Slider.prototype._bindKeyboard = function () {
   // This makes Tab key navigate slide-by-slide through the real slides.
   // Cloned slides are already tabindex="-1" so they're skipped.
   this.root.addEventListener("focusin", function (e) {
+    if (self.isStatic) return;
     // Marquee: stop moving while keyboard focus is inside (WCAG 2.2.2)
     // and bring a focused card into view if it's partly off-screen.
     // Mouse clicks also move focus (e.g. onto an arrow button); those are
@@ -823,6 +871,21 @@ Slider.prototype.layout = function (silent) {
   }
 
 
+  // Nothing to slide? Every real slide fits (a CMS list with two items,
+  // or CSS showing all of them at this breakpoint). Then hide the
+  // navigation and stand still. Re-checked on every resize, so it follows
+  // CSS breakpoints. A marquee keeps moving: its motion is the point.
+  var wasStatic = this.isStatic;
+  this._setStatic(this._realSlidesFit());
+  if (this.isStatic) {
+    // Center mode centers the group; otherwise it sits on the left.
+    var spare = this.opts.center ? (this.containerSize - this._realWidth) / 2 : 0;
+    this.translate = spare;
+    this.list.style.transition = "none";
+    this.list.style.transform = spare ? "translate3d(" + spare + "px, 0, 0)" : "";
+    return;
+  }
+
   // 3. Measure the real slide pitch (width + gap) from the DOM. This is
   //    the single source of truth for swipe math, regardless of who set
   //    the sizes. Falls back gracefully when there's only one slide.
@@ -856,11 +919,43 @@ Slider.prototype.layout = function (silent) {
 
   if (this._mq) {
     this._marqueeMeasure();
-  } else if (!silent) {
+  } else if (!silent || wasStatic) {
     this.goTo(this.realIndex, false);
   }
   this._updateScrollbar(false);
   this._updateProgress(false);
+  if (wasStatic) this._startAutoplay();
+};
+
+// Width of the real slides (clones ignored) and whether it fits.
+Slider.prototype._realSlidesFit = function () {
+  if (!this.opts.autoHide || this.opts.marquee) return false;
+  var first = this.originalItems[0].getBoundingClientRect();
+  var last = this.originalItems[this.realCount - 1].getBoundingClientRect();
+  this._realWidth = last.right - first.left;
+  return this._realWidth <= this.containerSize + 1;
+};
+
+Slider.prototype._setStatic = function (on) {
+  if (on === this.isStatic) return;
+  this.isStatic = on;
+  this.root.classList.toggle("is-static", on);
+  setControlsHidden(this.root, on);
+  // Loop clones would show up as duplicates next to the real slides.
+  for (var i = 0; i < this.items.length; i++) {
+    if (this.items[i].getAttribute("zh-slider-clone") === "true") setHidden(this.items[i], on);
+  }
+  if (on) {
+    this._stopAutoplay();
+    if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+    this.realIndex = 0;
+    this.index = this.loopOffset;
+    // Every real slide is on screen now, so none should be hidden from
+    // screen readers.
+    for (var r = 0; r < this.originalItems.length; r++) {
+      this.originalItems[r].setAttribute("aria-hidden", "false");
+    }
+  }
 };
 
 // ── Movement ──────────────────────────────────────────────────────────────
@@ -949,6 +1044,7 @@ Slider.prototype._realIndexFromDisplayed = function (disp) {
 };
 
 Slider.prototype.goTo = function (realIndex, animate) {
+  if (this.isStatic) return;
   if (this._mq) return this._marqueeGoTo(realIndex);
   if (animate == null) animate = true;
   var target;
@@ -1681,6 +1777,7 @@ Slider.prototype._bindPointer = function () {
 
   function onDown(e) {
     if (e.button != null && e.button !== 0) return;
+    if (self.isStatic) return;
     tracking = true;
     allowClick = true;
     self.isDragging = false;
@@ -1859,7 +1956,7 @@ Slider.prototype._bindVisibility = function () {
 //      A transitionend listener on the active fill triggers next().
 //   2. Classic mode: setInterval.
 Slider.prototype._startAutoplay = function () {
-  if (this.opts.autoplayMs <= 0) return;
+  if (this.opts.autoplayMs <= 0 || this.isStatic) return;
   if (this.autoplayTimer) return;
   // Synced sliders follow their master — they don't autoplay independently.
   if (this.opts.syncTo) return;
