@@ -929,7 +929,9 @@ Slider.prototype.layout = function (silent) {
 
 // Width of the real slides (clones ignored) and whether it fits.
 Slider.prototype._realSlidesFit = function () {
-  if (!this.opts.autoHide || this.opts.marquee) return false;
+  // Not rendered yet (hidden tab, display:none): can't tell, so don't
+  // hide anything. The ResizeObserver lays out again once it shows.
+  if (!this.opts.autoHide || this.opts.marquee || !this.containerSize) return false;
   var first = this.originalItems[0].getBoundingClientRect();
   var last = this.originalItems[this.realCount - 1].getBoundingClientRect();
   this._realWidth = last.right - first.left;
@@ -1089,6 +1091,11 @@ Slider.prototype.goTo = function (realIndex, animate, flickVelocity) {
   var target;
 
   if (this.opts.loop) {
+    // One step past either end is fine (that's the clone we glide onto);
+    // anything further is folded back into the real set.
+    if (realIndex > this.realCount || realIndex < -1) {
+      realIndex = ((realIndex % this.realCount) + this.realCount) % this.realCount;
+    }
     target = realIndex + this.loopOffset;
   } else {
     // Allow navigating to every real slide (0 … realCount-1).
@@ -1157,13 +1164,11 @@ Slider.prototype._normalizeLoopIndex = function () {
 
 // After a loop wrap, jump instantly back to the equivalent real position.
 Slider.prototype._handleLoopWrap = function () {
-  if (!this.opts.loop) return;
+  if (!this.opts.loop || this.realCount < 1) return;
   var max = this.loopOffset + this.realCount; // exclusive
-  if (this.index >= max) {
-    this.index -= this.realCount;
-    this._setTranslate(this._posFor(this.index), false);
-  } else if (this.index < this.loopOffset) {
-    this.index += this.realCount;
+  if (this.index >= max || this.index < this.loopOffset) {
+    while (this.index >= max) this.index -= this.realCount;
+    while (this.index < this.loopOffset) this.index += this.realCount;
     this._setTranslate(this._posFor(this.index), false);
   }
 };
@@ -1819,6 +1824,7 @@ Slider.prototype._bindPointer = function () {
   var startY = 0;
   var samples = [];          // recent { x, t } for a steady release speed
   var interrupted = false;   // this press stopped a glide half-way
+  var axis = null;           // touch: "x" = swiping, "y" = scrolling the page
 
   // Touch: let the browser handle vertical scrolling and pinch-zoom, and
   // leave horizontal swipes to the slider. Without this the browser and
@@ -1852,6 +1858,16 @@ Slider.prototype._bindPointer = function () {
     return (b.x - a.x) / (b.t - a.t);
   }
 
+  // Touch: decide once, in the first few pixels, whether this is a swipe
+  // or a page scroll, then stick to it until the finger lifts. Thumbs move
+  // in an arc, so a swipe may drift up to ~50° and still count as
+  // horizontal; only clearly vertical moves scroll the page.
+  function decideAxis(dx, dy) {
+    var adx = Math.abs(dx), ady = Math.abs(dy);
+    if (adx + ady < 6) return null;
+    return adx >= ady * 0.8 ? "x" : "y";
+  }
+
   function onDown(e) {
     if (e.button != null && e.button !== 0) return;
     if (self.isStatic) return;
@@ -1862,6 +1878,7 @@ Slider.prototype._bindPointer = function () {
     self.dragMoved = false;
     self.dragStart = e.clientX;
     startY = e.clientY;
+    axis = null;
     samples = [{ x: e.clientX, t: performance.now() }];
     self.dragVelocity = 0;
 
@@ -1893,9 +1910,11 @@ Slider.prototype._bindPointer = function () {
 
     // ── Before threshold ────────────────────────────────────────────
     if (!self.isDragging) {
-      var dy = e.clientY - startY;
-      // Mostly vertical: the user is scrolling the page, not swiping.
-      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) >= self.opts.threshold) {
+      if (e.pointerType !== "mouse" && !axis) {
+        axis = decideAxis(dx, e.clientY - startY);
+        if (!axis) return;
+      }
+      if (axis === "y") {
         tracking = false;
         return;
       }
@@ -2027,6 +2046,19 @@ Slider.prototype._bindPointer = function () {
   // pointerdown on the wrapper (slider_list-wrapper), NOT the root
   wrapper.addEventListener("pointerdown", onDown);
 
+  // Swipe lock: once a touch is a horizontal swipe, the page stays put for
+  // the rest of that touch, however much the thumb drifts up or down.
+  // Pointer events can't stop scrolling, touch events can. Usually the
+  // pointermove for this movement already decided; if this browser sends
+  // the touchmove first, decide here.
+  wrapper.addEventListener("touchmove", function (e) {
+    if (!tracking) return;
+    if (!axis && e.touches.length) {
+      axis = decideAxis(e.touches[0].clientX - self.dragStart, e.touches[0].clientY - startY);
+    }
+    if (axis === "x" && e.cancelable) e.preventDefault();
+  }, { passive: false });
+
   // Prevent native image dragging from hijacking pointer events in Safari
   var imgs = this.list.querySelectorAll("img");
   for (var i = 0; i < imgs.length; i++) {
@@ -2041,15 +2073,28 @@ Slider.prototype._bindPointer = function () {
 // ── Resize handling ──────────────────────────────────────────────────────
 Slider.prototype._bindResize = function () {
   var self = this;
+  this._lastWidth = this.root.clientWidth;
   function onResize() {
     cancelAnimationFrame(self.resizeRaf);
     self.resizeRaf = requestAnimationFrame(function () {
+      // Only the width matters. Mobile browsers fire resize when the
+      // address bar slides in or out (height only); laying out again then
+      // would cut a running glide short.
+      var w = self.root.clientWidth;
+      if (w === self._lastWidth) return;
+      self._lastWidth = w;
       self._applyBreakpoint();
       self.layout(false);
     });
   }
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", onResize);
+  // Also catches the slider becoming visible (Webflow tabs, accordions,
+  // display:none at load) or its column changing width on its own.
+  if ("ResizeObserver" in window) {
+    this._resizeObserver = new ResizeObserver(onResize);
+    this._resizeObserver.observe(this.root);
+  }
 };
 
 // ── Pause when tab/page is hidden (Safari battery friendly) ──────────────
@@ -2148,6 +2193,7 @@ Slider.prototype._restartAutoplay = function () {
 Slider.prototype.destroy = function () {
   this._stopAutoplay();
   if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+  if (this._resizeObserver) this._resizeObserver.disconnect();
   if (this._mq) {
     if (this._mq.raf) cancelAnimationFrame(this._mq.raf);
     if (this._mqObserver) this._mqObserver.disconnect();
