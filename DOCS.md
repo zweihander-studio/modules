@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.6.3`
+**Huidige versie:** `v1.6.4`
 
 ---
 
@@ -12,7 +12,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.3/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.4/zweihander.min.js"
   zh-auto>
 </script>
 ```
@@ -27,7 +27,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.3/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.4/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -43,6 +43,19 @@ Voorbeeld handmatig (alleen slider + animate):
 | **zh-filter** | `zh-filter` | *(placeholder — nog niet geimplementeerd)* |
 
 ---
+
+## Tijden
+
+Overal waar een tijd gevraagd wordt (`zh-animate-delay`, `zh-animate-duration`, `zh-animate-stagger`, `zh-slider-duration`, `zh-slider-autoplay`) mag je milliseconden of seconden schrijven:
+
+| Je schrijft | Betekent |
+|-------------|----------|
+| `300` of `300ms` | 300 milliseconden |
+| `0.3` of `0.3s` | 0,3 seconde = 300 milliseconden |
+| `4` | 4 seconden (een kaal getal onder de 10 is altijd seconden) |
+| `4000` | 4000 milliseconden = 4 seconden |
+
+Seconden werken dus net als in Webflow.
 
 ## zh-slider
 
@@ -90,7 +103,7 @@ Alle opties staan als attributen op het root-element (`[zh-slider]`).
 | `zh-slider` | string | `""` | **Verplicht.** Naam van de slider (gebruikt voor sync, tellers, timeline). Mag leeg zijn. |
 | `zh-slider-loop` | boolean | `false` | Eindeloos loopen (clonet slides aan beide kanten) |
 | `zh-slider-center` | boolean | `false` | De actieve slide staat in het midden in plaats van links. Zie [Gecentreerd](#gecentreerd) |
-| `zh-slider-duration` | number | `500` | Animatieduur in ms |
+| `zh-slider-duration` | tijd | `500` | Animatieduur. Zie [Tijden](#tijden) |
 | `zh-slider-per-view` | number/`"auto"` | `1` | Aantal zichtbare slides. `"auto"` = laat CSS de breedte bepalen |
 | `zh-slider-gap` | number | `0` | Ruimte tussen slides in px. Als niet gezet, bepaalt je CSS de gap |
 | `zh-slider-autoplay` | `true`/`false`/number | uit | `true` = aan met 4000 ms, `false` of `0` = uit, een getal = eigen interval in ms |
@@ -347,8 +360,8 @@ Scroll-triggered animaties via IntersectionObserver + CSS transitions. Geen GSAP
 | Attribute | Type | Default | Beschrijving |
 |-----------|------|---------|-------------|
 | `zh-animate` | string | `"up"` | **Verplicht.** Animatierichting: `up`, `down`, `left`, `right`, `fade`, `scale`, `none` |
-| `zh-animate-delay` | number | `0` | Vertraging in ms voor de animatie start |
-| `zh-animate-duration` | number | `600` | Animatieduur in ms |
+| `zh-animate-delay` | tijd | `0` | Vertraging voor de animatie start, bijv. `300` of `0.3`. Zie [Tijden](#tijden) |
+| `zh-animate-duration` | tijd | `600` | Animatieduur. Zie [Tijden](#tijden) |
 | `zh-animate-distance` | number | `30` | Afstand in px voor translate-animaties |
 | `zh-animate-easing` | string | `"cubic-bezier(0.68, -0.6, 0.32, 1.6)"` | CSS easing (default heeft een lichte bounce) |
 | `zh-animate-threshold` | number | `0.15` | Hoeveel van het element zichtbaar moet zijn (0-1) voordat het animeert |
@@ -524,7 +537,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.6.3   ← specifieke versie (aanbevolen)
+@v1.6.4   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -532,6 +545,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.6.4 | Tijden mogen in seconden (`0.3`, `0.3s`) of milliseconden (`300`, `300ms`). `zh-animate-delay="0.3"` werd eerder als 0,3 ms gelezen. Loader verdraagt een dubbele slash in de script-src |
 | v1.6.3 | Muis-slepen op kaarten die links zijn: geen haperen of doorschieten meer (focus door de klik schoof de slider weg). Geen tekstselectie tijdens slepen |
 | v1.6.2 | Swipe-lock op touch: een (schuine) swipe zet de pagina vast tot je loslaat. Adresbalk-resize onderbreekt geen glide meer. Sliders die onzichtbaar laden meten opnieuw zodra ze zichtbaar worden |
 | v1.6.1 | Vloeiender swipen: `touch-action` wordt automatisch gezet, een glijdende slide kun je direct vastpakken, geen sprong bij de drempel, snelheid gemeten over de laatste 100 ms, en `zh-slider-easing` met `cubic-bezier()` wordt nu echt gebruikt (viel eerder terug op ease-in-out) |

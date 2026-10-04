@@ -20,8 +20,10 @@ const loaderScript =
   document.querySelector("script[src*='zweihander']") ||
   document.currentScript;
 
+// Trailing slashes are trimmed, so a src with "//zweihander.min.js" still
+// resolves modules without a redirect per file.
 const baseUrl = loaderScript
-  ? loaderScript.src.replace(/\/[^/]*$/, "")
+  ? loaderScript.src.replace(/\/[^/]*$/, "").replace(/\/+$/, "")
   : ".";
 
 // Global API

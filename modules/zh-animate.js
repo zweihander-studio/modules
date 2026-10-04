@@ -24,11 +24,12 @@
  *
  * Attributes:
  *   zh-animate          = "up|down|left|right|fade|scale|none"  (default "up")
- *   zh-animate-delay    = delay in ms before animation starts   (default 0)
- *   zh-animate-duration = animation duration in ms              (default 600)
+ *   zh-animate-delay    = delay before animation starts         (default 0)
+ *   zh-animate-duration = animation duration                    (default 600)
  *   zh-animate-distance = translate distance in px              (default 30)
  *   zh-animate-easing   = CSS easing string                     (default "cubic-bezier(0.68, -0.6, 0.32, 1.6)")
- *   zh-animate-stagger  = stagger delay between siblings in ms  (container attr)
+ *   zh-animate-stagger  = stagger delay between siblings        (container attr)
+ *   Times: "300", "300ms", "0.3" and "0.3s" all mean 300ms.
  *   zh-animate-threshold= how much of element must be visible   (default 0.15)
  *   zh-animate-once     = "true|false" animate once or repeat   (default true)
  *   zh-animate-mobile   = "true|false" animate on <768px        (default true)
@@ -101,6 +102,24 @@ function attrNumber(el, name, fallback) {
   return isNaN(n) ? fallback : n;
 }
 
+// Times may be written in ms ("300", "300ms") or in seconds like Webflow
+// does ("0.3", "0.3s"). A bare number below 10 can only sensibly mean
+// seconds, so it's read as such.
+function toMs(raw) {
+  var v = String(raw).trim().toLowerCase();
+  var n = parseFloat(v);
+  if (isNaN(n)) return NaN;
+  if (/ms$/.test(v)) return n;
+  if (/s$/.test(v)) return n * 1000;
+  return n < 10 ? n * 1000 : n;
+}
+function attrMs(el, name, fallback) {
+  var v = attr(el, name, null);
+  if (v === null) return fallback;
+  var n = toMs(v);
+  return isNaN(n) || n < 0 ? fallback : n;
+}
+
 function prefersReducedMotion() {
   return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -143,8 +162,8 @@ function readConfig(el) {
   var d = getDefaults();
   return {
     direction: attr(el, ATTR.root, d.direction),
-    delay:     attrNumber(el, ATTR.delay, d.delay),
-    duration:  attrNumber(el, ATTR.duration, d.duration),
+    delay:     attrMs(el, ATTR.delay, d.delay),
+    duration:  attrMs(el, ATTR.duration, d.duration),
     distance:  attrNumber(el, ATTR.distance, d.distance),
     easing:    attr(el, ATTR.easing, d.easing),
     threshold: attrNumber(el, ATTR.threshold, d.threshold),
@@ -212,7 +231,7 @@ function applyStaggerDelays() {
   var containers = document.querySelectorAll("[" + ATTR.stagger + "]");
   for (var i = 0; i < containers.length; i++) {
     var container = containers[i];
-    var staggerMs = attrNumber(container, ATTR.stagger, 0);
+    var staggerMs = attrMs(container, ATTR.stagger, 0);
     if (staggerMs <= 0) continue;
 
     // Find direct children that have zh-animate

@@ -80,16 +80,34 @@ function attrNumber(el, name, fallback) {
   var n = parseFloat(v);
   return isNaN(n) ? fallback : n;
 }
+// Times may be written in ms ("300", "300ms") or in seconds like Webflow
+// does ("0.3", "0.3s"). A bare number below 10 can only sensibly mean
+// seconds, so it's read as such.
+function toMs(raw) {
+  var v = String(raw).trim().toLowerCase();
+  var n = parseFloat(v);
+  if (isNaN(n)) return NaN;
+  if (/ms$/.test(v)) return n;
+  if (/s$/.test(v)) return n * 1000;
+  return n < 10 ? n * 1000 : n;
+}
+function attrMs(el, name, fallback) {
+  var v = attr(el, name, null);
+  if (v === null) return fallback;
+  var n = toMs(v);
+  return isNaN(n) || n < 0 ? fallback : n;
+}
+
 // On/off-or-number attribute (autoplay, marquee):
 //   absent, "false", "0"  → 0 (off)
 //   "true" or empty       → onValue (the default when switched on)
 //   a number              → that number
-function attrToggleNumber(el, name, onValue) {
+function attrToggleNumber(el, name, onValue, isTime) {
   if (!el || !el.hasAttribute(name)) return 0;
   var raw = (el.getAttribute(name) || "").trim().toLowerCase();
   if (raw === "" || raw === "true") return onValue;
   if (raw === "false") return 0;
-  var n = parseFloat(raw);
+  var n = isTime ? toMs(raw) : parseFloat(raw);
   return isNaN(n) || n < 0 ? 0 : n;
 }
 function attrJSON(el, name, fallback) {
@@ -287,12 +305,12 @@ Slider.prototype._readOptions = function () {
     loop: marquee || attrBool(r, "zh-slider-loop", false),
     // Center: the active slide sits in the middle instead of on the left.
     center: attrBool(r, "zh-slider-center", false),
-    duration: reducedMotion ? 0 : attrNumber(r, "zh-slider-duration", 500),
+    duration: reducedMotion ? 0 : attrMs(r, "zh-slider-duration", 500),
     slidesPerView: this._parseSpv(attr(r, "zh-slider-per-view", "1")),
     perViewSet: r.hasAttribute("zh-slider-per-view"),
     spaceBetween: attrNumber(r, "zh-slider-gap", 0),
     gapSet: r.hasAttribute("zh-slider-gap"),
-    autoplayMs: reducedMotion || marquee ? 0 : attrToggleNumber(r, "zh-slider-autoplay", 4000),
+    autoplayMs: reducedMotion || marquee ? 0 : attrToggleNumber(r, "zh-slider-autoplay", 4000, true),
     skipLink: attrBool(r, "zh-slider-skiplink", false),
     syncTo: attr(r, "zh-slider-sync", null),
     // A marquee pauses on hover by default so people can click a card.
