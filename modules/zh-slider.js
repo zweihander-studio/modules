@@ -772,13 +772,17 @@ Slider.prototype._bindKeyboard = function () {
   // Cloned slides are already tabindex="-1" so they're skipped.
   this.root.addEventListener("focusin", function (e) {
     if (self.isStatic) return;
+    // Only keyboard focus moves the slider. A mouse press on a card that
+    // is a link also focuses it; sliding that card into place then would
+    // pull the slider away while it's being dragged.
+    var keyboard = !self._pointerDown;
+    try { keyboard = keyboard && e.target.matches(":focus-visible"); } catch (err) {}
+
     // Marquee: stop moving while keyboard focus is inside (WCAG 2.2.2)
     // and bring a focused card into view if it's partly off-screen.
     // Mouse clicks also move focus (e.g. onto an arrow button); those are
     // ignored, otherwise the marquee would stay frozen after a click.
     if (self.opts.marquee) {
-      var keyboard = true;
-      try { keyboard = e.target.matches(":focus-visible"); } catch (err) {}
       if (!keyboard) return;
       self._marqueeSetPaused("focus", true);
       var card = e.target.closest("[" + ATTR.item + "]");
@@ -801,7 +805,7 @@ Slider.prototype._bindKeyboard = function () {
     if (idx < 0) return;
 
     // Only slide if it's not already the current slide
-    if (idx !== self.index) {
+    if (keyboard && idx !== self.index) {
       if (self.opts.loop) {
         self.index = idx;
         self.realIndex = self._realIndexFromDisplayed(idx);
@@ -1930,6 +1934,20 @@ Slider.prototype._bindPointer = function () {
       self.list.style.transition = "none";
       self.root.classList.add("is-dragging");
       self._stopAutoplay();
+
+      // Whatever started moving the slides since the press (autoplay,
+      // focus, a glide), stop it and drag on from where they really are.
+      if (self._rafId) { cancelAnimationFrame(self._rafId); self._rafId = null; }
+      if (!self._mq) self._normalizeLoopIndex();
+      self.startTranslate = self.translate;
+
+      // Mouse: dragging across card text shouldn't select it.
+      if (e.pointerType === "mouse") {
+        var sel = window.getSelection && window.getSelection();
+        if (sel && sel.removeAllRanges) sel.removeAllRanges();
+        self.list.style.userSelect = "none";
+        self.list.style.webkitUserSelect = "none";
+      }
     }
 
     // ── Active drag ─────────────────────────────────────────────────
@@ -1984,6 +2002,8 @@ Slider.prototype._bindPointer = function () {
     document.removeEventListener("pointercancel", onUp);
 
     var wasDragging = self.isDragging;
+    self.list.style.userSelect = "";
+    self.list.style.webkitUserSelect = "";
     // pointercancel = the browser took over (e.g. started scrolling);
     // settle on the nearest slide without flinging.
     var cancelled = e.type === "pointercancel";

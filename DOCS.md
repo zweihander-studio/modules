@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.6.2`
+**Huidige versie:** `v1.6.3`
 
 ---
 
@@ -12,7 +12,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.2/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.3/zweihander.min.js"
   zh-auto>
 </script>
 ```
@@ -27,7 +27,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.2/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.3/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -106,9 +106,13 @@ Alle opties staan als attributen op het root-element (`[zh-slider]`).
 | `zh-slider-pagination-clickable` | boolean | `true` | Klikbare pagination bullets |
 | `zh-slider-breakpoints` | JSON | `null` | Responsive overrides (zie onder) |
 
-### Swipen op touch
+### Slepen en swipen
 
-Zo voelt swipen op mobiel vloeiend:
+Zo voelt slepen met de muis en swipen op mobiel vloeiend:
+
+- Je kunt overal in de slider slepen, ook op een kaart die een link is. Klikken en hover op de kaart blijven gewoon werken; alleen een klik direct na een sleep wordt tegengehouden.
+- Tijdens slepen met de muis wordt geen tekst geselecteerd.
+- Met Tab door de kaarten lopen schuift de slider mee. Een muisklik op een kaart doet dat bewust niet, anders schuift de slider weg terwijl je sleept.
 
 - De slide volgt je duim 1-op-1. De 5 px drempel (`zh-slider-drag-threshold`) zorgt alleen dat een tik geen sleep wordt, er is geen sprong.
 - In de eerste pixels beslist de slider of je swipet of scrolt. Een swipe mag tot ongeveer 50° schuin gaan, want een duim beweegt in een boog. Is het een swipe, dan zit de pagina vast tot je je duim optilt, hoeveel je duim daarna ook omhoog of omlaag gaat. Duidelijk verticale bewegingen scrollen gewoon de pagina.
@@ -520,7 +524,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.6.2   ← specifieke versie (aanbevolen)
+@v1.6.3   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -528,6 +532,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.6.3 | Muis-slepen op kaarten die links zijn: geen haperen of doorschieten meer (focus door de klik schoof de slider weg). Geen tekstselectie tijdens slepen |
 | v1.6.2 | Swipe-lock op touch: een (schuine) swipe zet de pagina vast tot je loslaat. Adresbalk-resize onderbreekt geen glide meer. Sliders die onzichtbaar laden meten opnieuw zodra ze zichtbaar worden |
 | v1.6.1 | Vloeiender swipen: `touch-action` wordt automatisch gezet, een glijdende slide kun je direct vastpakken, geen sprong bij de drempel, snelheid gemeten over de laatste 100 ms, en `zh-slider-easing` met `cubic-bezier()` wordt nu echt gebruikt (viel eerder terug op ease-in-out) |
 | v1.6.0 | Navigatie verbergt zich bij een lege slider of als alles past (`is-empty`, `is-static`, `zh-slider-auto-hide`, `zh-slider-element="controls"`). `zh-auto` wacht nu tot de pagina geladen is, zodat sliders verderop niet worden overgeslagen als het script in de head staat |
