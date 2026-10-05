@@ -54,8 +54,27 @@ async function loadModule(name) {
     window.Zweihander._loaded[name] = "ready";
   } catch (err) {
     window.Zweihander._loaded[name] = "error";
+    if (name === "animate") releaseAnimate();
     console.error(`[Zweihander] failed to load module "${name}"`, err);
   }
+}
+
+// Keep [zh-animate] content hidden until zh-animate has set its start
+// state, so it doesn't show for a split second before animating in. The
+// head snippet in DOCS.md does this before the first paint; this covers
+// pages without it as far as timing allows. zh-animate lifts it once it's
+// ready; after 3s it's lifted anyway, so content never stays hidden.
+const PENDING = "zh-animate-pending";
+const releaseAnimate = () => document.documentElement.classList.remove(PENDING);
+if (loaderScript && (loaderScript.hasAttribute("zh-animate") || loaderScript.hasAttribute("zh-auto"))) {
+  if (!document.getElementById(PENDING)) {
+    const style = document.createElement("style");
+    style.id = PENDING;
+    style.textContent = `.${PENDING} [zh-animate] { opacity: 0; }`;
+    document.head.appendChild(style);
+  }
+  document.documentElement.classList.add(PENDING);
+  setTimeout(releaseAnimate, 3000);
 }
 
 // Read zh-* attributes from the script tag to decide which modules to load.
@@ -77,6 +96,7 @@ Promise.all(requested.map(loadModule));
 if (!requested.length && loaderScript && loaderScript.hasAttribute("zh-auto")) {
   const autoDetect = () => {
     const found = MODULES.filter((name) => document.querySelector(`[zh-${name}]`));
+    if (!found.includes("animate")) releaseAnimate();
     Promise.all(found.map(loadModule));
   };
   if (document.readyState === "loading") {

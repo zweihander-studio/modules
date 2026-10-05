@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.7.0`
+**Huidige versie:** `v1.7.1`
 
 ---
 
@@ -12,10 +12,24 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.7.0/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.7.1/zweihander.min.js"
   zh-auto>
 </script>
 ```
+
+### Geen flits bij het laden (aanbevolen bij zh-animate)
+
+Het script laadt pas nadat de browser de pagina een eerste keer heeft getekend. Zonder voorzorg zie je `zh-animate`-content daardoor heel even staan, voordat hij verdwijnt en inanimeert. Plak dit in Webflow onder **Site settings > Custom code > Head code**, boven het Zweihander-script:
+
+```html
+<style>.zh-animate-pending [zh-animate]{opacity:0}</style>
+<script>document.documentElement.classList.add("zh-animate-pending");setTimeout(function(){document.documentElement.classList.remove("zh-animate-pending")},3000);</script>
+```
+
+- De `zh-animate`-elementen zijn dan vanaf de eerste tekening onzichtbaar. Zodra zh-animate klaar staat, neemt die het over.
+- Laadt de module niet, dan wordt alles meteen zichtbaar. Laadt er helemaal geen script, dan na 3 seconden. Content blijft dus nooit verborgen.
+- In de Webflow Designer draait custom code niet, daar blijft alles gewoon zichtbaar.
+- Zonder dit stukje probeert de loader hetzelfde, maar die komt vaak net te laat voor de eerste tekening.
 
 ### Laden: automatisch vs. handmatig
 
@@ -27,7 +41,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.7.0/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.7.1/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -564,7 +578,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.7.0   ← specifieke versie (aanbevolen)
+@v1.7.1   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -572,6 +586,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.7.1 | Geen flits van `zh-animate`-content bij het laden: head-snippet in de docs, zh-animate geeft de content vrij zodra de beginstand staat, met vangnet als de module niet laadt |
 | v1.7.0 | `zh-animate-after`: niet eerder dan X na het laden van de pagina, zonder extra wachttijd na scrollen. Kan op een wrapper |
 | v1.6.4 | Tijden mogen in seconden (`0.3`, `0.3s`) of milliseconden (`300`, `300ms`). `zh-animate-delay="0.3"` werd eerder als 0,3 ms gelezen. Loader verdraagt een dubbele slash in de script-src |
 | v1.6.3 | Muis-slepen op kaarten die links zijn: geen haperen of doorschieten meer (focus door de klik schoof de slider weg). Geen tekstselectie tijdens slepen |

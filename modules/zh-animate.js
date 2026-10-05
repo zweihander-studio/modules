@@ -390,6 +390,13 @@ function destroy() {
 // ───────────────────────────────────────────────────────────────────────────
 // Bootstrap — called by the loader
 // ───────────────────────────────────────────────────────────────────────────
+// Content may have been hidden until now to avoid a flash before the first
+// animation (head snippet / loader). Every element has its own start state
+// once this runs, so lift the page-wide hiding.
+function releasePending() {
+  document.documentElement.classList.remove("zh-animate-pending");
+}
+
 function bootstrap() {
   startedAt = performance.now();
   // WCAG 2.3.3 — respect prefers-reduced-motion. Elements are shown
@@ -401,10 +408,12 @@ function bootstrap() {
       els[i].style.transform = "";
       els[i].classList.add("is-animated");
     }
+    releasePending();
     return;
   }
 
   scan();
+  releasePending();
 
   // Re-check mobile on resize
   window.addEventListener("resize", function () {
