@@ -33,6 +33,10 @@
  *   zh-animate-threshold= how much of element must be visible   (default 0.15)
  *   zh-animate-once     = "true|false" animate once or repeat   (default true)
  *   zh-animate-mobile   = "true|false" animate on <768px        (default true)
+ *   zh-animate-after    = not before this long after page start (default 0)
+ *                         On this element or any ancestor (e.g. a section).
+ *                         Unlike delay, it doesn't add up after scrolling:
+ *                         content that scrolls in later shows right away.
  *
  * The script sets initial hidden state via inline styles (opacity + transform),
  * then uses IntersectionObserver to detect viewport entry. On enter it applies
@@ -55,6 +59,7 @@ var ATTR = {
   threshold: "zh-animate-threshold",
   once:      "zh-animate-once",
   mobile:    "zh-animate-mobile",
+  after:     "zh-animate-after",
 };
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -130,6 +135,7 @@ function prefersReducedMotion() {
 var observer = null;
 var elements = [];       // all managed [zh-animate] elements
 var isMobile = false;
+var startedAt = 0;       // when the module started, i.e. when on-load animations begin
 
 function checkMobile() {
   isMobile = window.innerWidth < 768;
@@ -169,7 +175,15 @@ function readConfig(el) {
     threshold: attrNumber(el, ATTR.threshold, d.threshold),
     once:      attrBool(el, ATTR.once, d.once),
     mobile:    attrBool(el, ATTR.mobile, d.mobile),
+    after:     readAfter(el),
   };
+}
+
+// zh-animate-after can sit on the element itself or on a wrapper such as
+// the section, so one attribute covers everything inside it.
+function readAfter(el) {
+  var host = el.hasAttribute(ATTR.after) ? el : el.closest("[" + ATTR.after + "]");
+  return host ? attrMs(host, ATTR.after, 0) : 0;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -263,7 +277,11 @@ function onIntersect(entries) {
     if (entry.isIntersecting) {
       // Element entered viewport — animate in
       var staggerDelay = el.__zhAnimateStagger || 0;
-      var totalDelay = cfg.delay + staggerDelay;
+      // after: wait only for whatever is left of it since the page
+      // started. Visible on load → waits for the hero; scrolled into view
+      // later → that time has passed, so no extra wait.
+      var afterLeft = cfg.after ? Math.max(0, cfg.after - (performance.now() - startedAt)) : 0;
+      var totalDelay = Math.max(cfg.delay, afterLeft) + staggerDelay;
       setVisibleState(el, cfg, totalDelay);
 
       // If animate-once, stop observing after it enters
@@ -373,6 +391,7 @@ function destroy() {
 // Bootstrap — called by the loader
 // ───────────────────────────────────────────────────────────────────────────
 function bootstrap() {
+  startedAt = performance.now();
   // WCAG 2.3.3 — respect prefers-reduced-motion. Elements are shown
   // immediately without any animation, so nothing stays invisible.
   if (prefersReducedMotion()) {

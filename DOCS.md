@@ -2,7 +2,7 @@
 
 Dependency-free modules voor Webflow. Laad alleen wat je nodig hebt via een enkele script-tag.
 
-**Huidige versie:** `v1.6.4`
+**Huidige versie:** `v1.7.0`
 
 ---
 
@@ -12,7 +12,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.4/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.7.0/zweihander.min.js"
   zh-auto>
 </script>
 ```
@@ -27,7 +27,7 @@ Plak dit in je Webflow project-instellingen onder **Custom Code > Footer Code**:
 Voorbeeld handmatig (alleen slider + animate):
 ```html
 <script async type="module"
-  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.6.4/zweihander.min.js"
+  src="https://cdn.jsdelivr.net/gh/zweihander-studio/modules@v1.7.0/zweihander.min.js"
   zh-slider
   zh-animate>
 </script>
@@ -364,9 +364,10 @@ Scroll-triggered animaties via IntersectionObserver + CSS transitions. Geen GSAP
 | `zh-animate-duration` | tijd | `600` | Animatieduur. Zie [Tijden](#tijden) |
 | `zh-animate-distance` | number | `30` | Afstand in px voor translate-animaties |
 | `zh-animate-easing` | string | `"cubic-bezier(0.68, -0.6, 0.32, 1.6)"` | CSS easing (default heeft een lichte bounce) |
-| `zh-animate-threshold` | number | `0.15` | Hoeveel van het element zichtbaar moet zijn (0-1) voordat het animeert |
+| `zh-animate-threshold` | number | `0.15` | Hoeveel van het element zichtbaar moet zijn (0-1) voordat het animeert. Lager = eerder, `0` = zodra de eerste pixel in beeld komt |
 | `zh-animate-once` | boolean | `true` | `true` = animeer eenmalig, `false` = opnieuw bij elke scroll in/uit |
 | `zh-animate-mobile` | boolean | `true` | `false` = geen animatie onder 768px |
+| `zh-animate-after` | tijd | `0` | Niet eerder dan zo lang na het laden van de pagina. Mag op het element of op een wrapper (bijv. de section). Zie [Wachten op de hero](#wachten-op-de-hero) |
 
 ### Richtingen
 
@@ -379,6 +380,32 @@ Scroll-triggered animaties via IntersectionObserver + CSS transitions. Geen GSAP
 | `fade` | Alleen fade-in (geen beweging) |
 | `scale` | Schaalt van 92% naar 100% + fade |
 | `none` | Geen visueel effect (handig voor stagger-timing zonder animatie) |
+
+### Wachten op de hero
+
+`zh-animate-delay` telt vanaf het moment dat een element in beeld komt. Voor een sectie onder een hero die eerst moet animeren is dat niet handig: op mobiel scrol je de sectie pas later in beeld en wacht hij dan alsnog.
+
+Gebruik daarvoor `zh-animate-after`: "niet eerder dan zo lang na het laden van de pagina".
+
+```html
+<section zh-animate-after="1.5">
+  <h2 zh-animate="up">Volgende sectie</h2>
+  <div zh-animate-stagger="0.1">
+    <div zh-animate="up">Kaart 1</div>
+    <div zh-animate="up">Kaart 2</div>
+  </div>
+</section>
+```
+
+| Situatie | Wat er gebeurt |
+|----------|----------------|
+| Sectie staat bij het laden al in beeld | Wacht tot 1,5 seconde na het laden, dus tot de hero klaar is |
+| Na 0,6 seconde in beeld gescrold | Wacht nog 0,9 seconde |
+| Pas na 3 seconden in beeld gescrold | Komt meteen |
+
+- Zet het attribuut op de section, dan geldt het voor alle `zh-animate`-elementen erin. Op een los element mag ook.
+- Stagger en `zh-animate-delay` blijven werken. Het element wacht op wat het langst is, `after` of `delay`, en de stagger komt daar bovenop.
+- Haal de oude `zh-animate-delay="1.5"` weg, anders wacht hij na het scrollen alsnog 1,5 seconde.
 
 ### Stagger
 
@@ -537,7 +564,7 @@ window.Zweihander._loaded
 De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 ```
-@v1.6.4   ← specifieke versie (aanbevolen)
+@v1.7.0   ← specifieke versie (aanbevolen)
 @main     ← altijd de laatste versie (niet voor productie)
 ```
 
@@ -545,6 +572,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| v1.7.0 | `zh-animate-after`: niet eerder dan X na het laden van de pagina, zonder extra wachttijd na scrollen. Kan op een wrapper |
 | v1.6.4 | Tijden mogen in seconden (`0.3`, `0.3s`) of milliseconden (`300`, `300ms`). `zh-animate-delay="0.3"` werd eerder als 0,3 ms gelezen. Loader verdraagt een dubbele slash in de script-src |
 | v1.6.3 | Muis-slepen op kaarten die links zijn: geen haperen of doorschieten meer (focus door de klik schoof de slider weg). Geen tekstselectie tijdens slepen |
 | v1.6.2 | Swipe-lock op touch: een (schuine) swipe zet de pagina vast tot je loslaat. Adresbalk-resize onderbreekt geen glide meer. Sliders die onzichtbaar laden meten opnieuw zodra ze zichtbaar worden |
