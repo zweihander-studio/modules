@@ -226,16 +226,17 @@ function Slider(root) {
   this.name = root.getAttribute(ATTR.root) || "";
 
   this.list = scopedQuery(root, "[" + ATTR.list + "]")[0];
-  if (!this.list) {
-    console.warn("[zh-slider] missing [zh-slider-list] inside", root);
-    return;
-  }
   this.originalItems = scopedQuery(root, "[" + ATTR.item + "]");
   if (!this.originalItems.length) {
-    // An empty CMS list is normal: hide the navigation rather than
-    // leaving "01 / 00" and dead arrows on the page.
+    // An empty CMS list is normal, and Webflow then leaves out the list
+    // element itself (only the empty state remains). Hide the navigation
+    // rather than leaving "01 / 00" and dead arrows on the page.
     root.classList.add("is-empty");
     if (attrBool(root, "zh-slider-auto-hide", true)) setControlsHidden(root, true);
+    return;
+  }
+  if (!this.list) {
+    console.warn("[zh-slider] missing [zh-slider-list] inside", root);
     return;
   }
 
