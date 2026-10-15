@@ -12,14 +12,16 @@
  *     </div>
  *   </div>
  *
- *   <!-- Controls: anywhere, linked by zh-filter-controls / zh-filter-target,
- *        or automatically when there's only one list on the page -->
+ *   <!-- Controls: outside the list, linked by zh-filter-controls /
+ *        zh-filter-target, or automatically when there's only one list.
+ *        zh-filter-field uses the same name as the field in the cards. -->
  *   <form zh-filter-controls="agenda">
  *     <input zh-filter-search placeholder="Zoek">
- *     <a zh-filter-by="categorie" zh-filter-value="">Alles</a>
- *     <a zh-filter-by="categorie">Acteur <span zh-filter-facet></span></a>
- *     <label><input type="checkbox" zh-filter-by="opleiding"> Productie</label>
- *     <select zh-filter-by="locatie">…</select>
+ *     <a zh-filter-field="categorie" zh-filter-value="">Alles</a>
+ *     <a zh-filter-field="categorie">Acteur <span zh-filter-facet></span></a>
+ *     <label><input type="checkbox" zh-filter-field="opleiding"> Productie</label>
+ *     <select zh-filter-field="locatie">…</select>
+ *     <input zh-filter-field="titel" placeholder="Titel bevat">
  *     <select zh-filter-sort><option value="datum-asc">Datum</option></select>
  *     <a zh-filter-reset>Wis filters</a>
  *   </form>
@@ -48,7 +50,6 @@ var ATTR = {
   split: "zh-filter-split",
   controls: "zh-filter-controls",
   target: "zh-filter-target",
-  by: "zh-filter-by",
   multi: "zh-filter-multi",
   search: "zh-filter-search",
   sort: "zh-filter-sort",
@@ -67,7 +68,7 @@ var ATTR = {
 };
 
 var CONTROL_SELECTOR = [
-  ATTR.by, ATTR.search, ATTR.sort, ATTR.reset, ATTR.more, ATTR.page,
+  ATTR.field, ATTR.search, ATTR.sort, ATTR.reset, ATTR.more, ATTR.page,
   ATTR.pagination, ATTR.results, ATTR.total, ATTR.empty,
 ].map(function (a) { return "[" + a + "]"; }).join(", ");
 
@@ -284,8 +285,8 @@ FilterList.prototype._bind = function (el) {
   (el.__zhFilterBound = el.__zhFilterBound || []).push(this);
   var c = { el: el };
 
-  if (el.hasAttribute(ATTR.by)) {
-    var field = el.getAttribute(ATTR.by);
+  if (el.hasAttribute(ATTR.field)) {
+    var field = el.getAttribute(ATTR.field);
     c.field = field;
     // The attribute may sit on a Webflow checkbox/radio field (the label)
     // instead of on the input itself.
@@ -877,6 +878,14 @@ FilterList.prototype.setSort = function (field, dir) {
 // ───────────────────────────────────────────────────────────────────────────
 // Bootstrap
 // ───────────────────────────────────────────────────────────────────────────
+// zh-filter-field marks data inside a card and a control outside the list.
+// Inside a list (and not in a controls wrapper) it's data.
+function isCardField(el) {
+  if (!el.hasAttribute(ATTR.field)) return false;
+  if (el.closest("[" + ATTR.controls + "]") || el.hasAttribute(ATTR.target)) return false;
+  return !!el.closest("[" + ATTR.root + "]");
+}
+
 function controlTargets(el) {
   var name = null;
   if (el.hasAttribute(ATTR.target)) name = el.getAttribute(ATTR.target);
@@ -922,6 +931,7 @@ function bootstrap() {
   guardSubmit();
 
   toArray(document.querySelectorAll(CONTROL_SELECTOR)).forEach(function (el) {
+    if (isCardField(el)) return;
     controlTargets(el).forEach(function (inst) {
       if (fresh.indexOf(inst) !== -1) inst._bind(el);
     });

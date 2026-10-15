@@ -560,18 +560,22 @@ Filteren, zoeken, sorteren en pagineren van Webflow CMS-lijsten. Vervangt Finswe
 | Element in een kaart | `zh-filter-field = categorie` | Een veld waarop gefilterd, gezocht of gesorteerd wordt. De tekst is de waarde |
 | Wrapper of form rond de knoppen | `zh-filter-controls = naam` | Koppelt de knoppen aan de lijst. Staat er maar één lijst op de pagina, dan mag dit weg |
 
+**De naam (identifier) kies je zelf**, bijvoorbeeld `categorie`. Het enige wat telt: de filterknop en het element in de kaart hebben dezelfde naam. Je hoeft dus geen CMS-veld in de attribuutwaarde te binden. De waarde waarop gefilterd wordt is de tekst van het element in de kaart, en die tekst bind je zoals altijd aan het CMS-veld (`{{Categorie}}`).
+
+Dezelfde `zh-filter-field` staat op twee plekken: in de kaart zegt hij "dit is de categorie", op een knop buiten de lijst zegt hij "deze knop filtert op categorie". Filterknoppen staan daarom altijd buiten de Collection List.
+
 Een veld mag vaker in een kaart staan, bijvoorbeeld een geneste Collection List met tags: elk tag-element krijgt `zh-filter-field = opleiding`. Een verborgen veld werkt ook.
 
 ### Bediening
 
 | Element | Attribuut | Gedrag |
 |---------|-----------|--------|
-| Knop of link (chip) | `zh-filter-by = categorie` | Filtert op de tekst van de knop. Opnieuw klikken zet hem uit. Standaard één tegelijk |
-| "Alles"-knop | `zh-filter-by = categorie` + `zh-filter-value =` (leeg) | Wist dat veld. Is actief als er niets gekozen is |
-| Checkbox (Webflow Checkbox Field) | `zh-filter-by = categorie` | Meerdere tegelijk. Mag op het label of op de input |
-| Radio | `zh-filter-by = categorie` | Eén tegelijk |
-| Select | `zh-filter-by = locatie` | Optie met lege waarde is "alles" |
-| Tekstveld | `zh-filter-by = titel` | Veld moet de getypte tekst bevatten |
+| Knop of link (chip) | `zh-filter-field = categorie` | Filtert op de tekst van de knop. Opnieuw klikken zet hem uit. Standaard één tegelijk |
+| "Alles"-knop | `zh-filter-field = categorie` + `zh-filter-value =` (leeg) | Wist dat veld. Is actief als er niets gekozen is |
+| Checkbox (Webflow Checkbox Field) | `zh-filter-field = categorie` | Meerdere tegelijk. Mag op het label of op de input |
+| Radio | `zh-filter-field = categorie` | Eén tegelijk |
+| Select | `zh-filter-field = locatie` | Optie met lege waarde is "alles" |
+| Tekstveld | `zh-filter-field = titel` | Zoekt alleen in de titel: kaarten waarvan de titel de getypte tekst bevat. Het zoekveld (`zh-filter-search`) zoekt in de hele kaart |
 | Zoekveld | `zh-filter-search` | Zoekt in de hele kaart. Met `zh-filter-search = titel,tekst` alleen in die velden |
 | Select | `zh-filter-sort` | Opties als `datum-asc`, `datum-desc`, `titel-asc`. Lege optie is de oorspronkelijke volgorde |
 | Knop | `zh-filter-sort = datum` | Klikken wisselt oplopend en aflopend. Met `datum-desc` altijd die richting |
