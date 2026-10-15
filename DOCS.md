@@ -54,7 +54,7 @@ Voorbeeld handmatig (alleen slider + animate):
 | **zh-slider** | `zh-slider` | Touch-slider met loop, autoplay, pagination, scrollbar, progress bar, timeline |
 | **zh-animate** | `zh-animate` | Scroll-triggered animaties (fade, slide, scale) met IntersectionObserver |
 | **zh-parallax** | `zh-parallax` | Parallax scroll-effect op images, video's en divs |
-| **zh-filter** | `zh-filter` | *(placeholder — nog niet geimplementeerd)* |
+| **zh-filter** | `zh-filter` | Filteren, zoeken, sorteren en "toon meer" of paginanummers op Webflow CMS-lijsten |
 
 ---
 
@@ -548,6 +548,96 @@ Zweihander.parallax.defaults({ speed: 2.0 }); // Overschrijf defaults
 
 ---
 
+## zh-filter
+
+Filteren, zoeken, sorteren en pagineren van Webflow CMS-lijsten. Vervangt Finsweet List, zonder afhankelijkheden.
+
+### Opbouw
+
+| Waar | Attribuut | Wat |
+|------|-----------|-----|
+| Collection List (of de wrapper eromheen) | `zh-filter = naam` | Zet de filter aan op deze lijst |
+| Element in een kaart | `zh-filter-field = categorie` | Een veld waarop gefilterd, gezocht of gesorteerd wordt. De tekst is de waarde |
+| Wrapper of form rond de knoppen | `zh-filter-controls = naam` | Koppelt de knoppen aan de lijst. Staat er maar één lijst op de pagina, dan mag dit weg |
+
+Een veld mag vaker in een kaart staan, bijvoorbeeld een geneste Collection List met tags: elk tag-element krijgt `zh-filter-field = opleiding`. Een verborgen veld werkt ook.
+
+### Bediening
+
+| Element | Attribuut | Gedrag |
+|---------|-----------|--------|
+| Knop of link (chip) | `zh-filter-by = categorie` | Filtert op de tekst van de knop. Opnieuw klikken zet hem uit. Standaard één tegelijk |
+| "Alles"-knop | `zh-filter-by = categorie` + `zh-filter-value =` (leeg) | Wist dat veld. Is actief als er niets gekozen is |
+| Checkbox (Webflow Checkbox Field) | `zh-filter-by = categorie` | Meerdere tegelijk. Mag op het label of op de input |
+| Radio | `zh-filter-by = categorie` | Eén tegelijk |
+| Select | `zh-filter-by = locatie` | Optie met lege waarde is "alles" |
+| Tekstveld | `zh-filter-by = titel` | Veld moet de getypte tekst bevatten |
+| Zoekveld | `zh-filter-search` | Zoekt in de hele kaart. Met `zh-filter-search = titel,tekst` alleen in die velden |
+| Select | `zh-filter-sort` | Opties als `datum-asc`, `datum-desc`, `titel-asc`. Lege optie is de oorspronkelijke volgorde |
+| Knop | `zh-filter-sort = datum` | Klikken wisselt oplopend en aflopend. Met `datum-desc` altijd die richting |
+| Knop | `zh-filter-reset` | Wist alle filters en de zoekterm. `zh-filter-reset = categorie` wist alleen dat veld, `= sort` de sortering |
+| Getal | `zh-filter-facet` | In een knop of label: aantal resultaten bij die keuze |
+| Tekst | `zh-filter-results` | Aantal resultaten |
+| Tekst | `zh-filter-total` | Totaal aantal items |
+| Blok | `zh-filter-empty` | Zichtbaar als niets voldoet |
+
+Binnen één veld is het "of" (Acteur of Muziek), tussen velden "en" (Acteur en Rotterdam). Hoofdletters en accenten tellen niet mee: "cafe" vindt "Café".
+
+### Toon meer en paginanummers
+
+| Attribuut | Waar | Gedrag |
+|-----------|------|--------|
+| `zh-filter-limit = 9` | Lijst | Toont 9 resultaten tegelijk |
+| `zh-filter-more` | Knop | Toont de volgende 9. Verdwijnt als alles zichtbaar is |
+| `zh-filter-page = prev` / `next` | Knop | Vorige of volgende pagina. Krijgt `is-disabled` aan de rand |
+| `zh-filter-pagination` | Lege div met één voorbeeldknop erin | Wordt gevuld met paginanummers in de stijl van je voorbeeldknop |
+
+Gebruik `zh-filter-more` of paginanummers, niet allebei.
+
+### Sorteren
+
+Het type wordt herkend: datums (`05/11/2025`, `2025-11-05`, `5 november 2025`), getallen (`12`, `€ 12,50`) of tekst. Lege waarden staan altijd achteraan. Zet `zh-filter-type = date`, `number` of `text` op het veld als het misgaat.
+
+### Gedeelde links
+
+De keuzes staan in de URL, bijvoorbeeld `?categorie=acteur&q=bang&sort=datum-desc`. Zo'n link opent met dezelfde filters. Staan er meerdere filterlijsten op een pagina, dan krijgen de sleutels de naam ervoor: `?agenda_categorie=acteur`. Uitzetten: `zh-filter-url = false` op de lijst.
+
+### Meer dan 100 items
+
+Zet in Webflow de paginering van de Collection List aan. De filter laadt dan alle volgende pagina's op de achtergrond, verbergt de Webflow-paginering en filtert over alles. Uitzetten: `zh-filter-load-all = false`. Webflow-interacties (IX) op kaarten van pagina 2 en verder werken dan niet; gebruik voor hover gewoon CSS.
+
+### Classes
+
+| Class | Waar | Wanneer |
+|-------|------|---------|
+| `is-active` | Knop, label, sorteerknop | Gekozen |
+| `is-empty` | Knop, label | Keuze zou 0 resultaten geven |
+| `is-asc` / `is-desc` | Sorteerknop | Richting |
+| `is-disabled` | Reset, vorige, volgende | Niets te doen |
+| `is-filtered` | Lijst | Er is een filter of zoekterm actief |
+| `is-no-results` | Lijst | Niets gevonden |
+| `is-loading` | Lijst | Extra Webflow-pagina's worden geladen |
+| `is-ready` | Lijst | Filter is gestart |
+
+### JS API
+
+```js
+var f = Zweihander.filter.get("agenda");
+f.set("categorie", ["Acteur"]);
+f.setSearch("bang");
+f.setSort("datum", "desc");
+f.reset();
+f.refresh();   // na het toevoegen van items
+```
+
+Bij elke verandering vuurt de lijst het event `zh-filter:update` af, met het aantal resultaten.
+
+### Toegankelijkheid
+
+Knoppen die links of divs zijn krijgen `role="button"`, `aria-pressed` en toetsenbordbediening. Het aantal resultaten wordt voorgelezen na elke wijziging. Een Webflow-formulier rond de knoppen wordt nooit verstuurd.
+
+---
+
 ## Loader — zweihander.js
 
 De loader detecteert welke modules nodig zijn en importeert ze dynamisch.
@@ -586,6 +676,7 @@ De repo gebruikt semver tags. Pin altijd op een specifieke versie in productie:
 
 | Versie | Wijziging |
 |--------|----------|
+| Nog niet uitgebracht | `zh-filter`: filteren, zoeken, sorteren, toon meer, paginanummers, gedeelde links, laadt alle Webflow-pagina's |
 | v1.7.2 | Lege CMS-slider verbergt nu echt de navigatie. Webflow laat bij een lege lijst het `zh-slider-list`-element weg, waardoor de slider eerder stopte voordat hij de pijltjes en nummers verborg |
 | v1.7.1 | Geen flits van `zh-animate`-content bij het laden: head-snippet in de docs, zh-animate geeft de content vrij zodra de beginstand staat, met vangnet als de module niet laadt |
 | v1.7.0 | `zh-animate-after`: niet eerder dan X na het laden van de pagina, zonder extra wachttijd na scrollen. Kan op een wrapper |
